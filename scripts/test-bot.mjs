@@ -1,10 +1,9 @@
+import { createTestEnvironment } from "./test-environment.mjs";
 import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 const cwd = resolve(import.meta.dirname, "..");
-const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
-  /^(?:PATH|Path|TMPDIR|TEMP|TMP|LANG|LC_.+|SYSTEMROOT|SystemRoot|WINDIR|CI|TERM)$/.test(name)));
-environment.NODE_ENV = "test";
+const environment = createTestEnvironment();
 function run(label, args) {
   process.stdout.write("\n" + label + "\n");
   const p = spawnSync(process.execPath, args, { cwd, env: environment, stdio: "inherit" });

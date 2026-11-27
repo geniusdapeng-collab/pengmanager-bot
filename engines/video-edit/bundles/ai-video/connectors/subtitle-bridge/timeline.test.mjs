@@ -23,6 +23,22 @@ const common = () => ({ input, bins, evidenceDir: path.join(root, "evidence"),
 const cue = (start = "0:00:00.10", end = "0:00:01.10", text = "真实字幕") => ({ start, end, text });
 const outputFor = name => path.join(root, `${name}.mp4`);
 
+async function rotatedSource(output) {
+  const options = execFileSync(bins.ffmpeg, ["-hide_banner", "-h", "full"], { encoding: "utf8", timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
+  // New FFmpeg uses an input display-matrix override. Older versions write
+  // the same matrix from the legacy stream metadata during an MP4 remux.
+  const remux = /^\s*-display_rotation(?:\[|:|\s)/mu.test(options)
+    ? ["-display_rotation:v:0", "90", "-i", input, "-c", "copy"]
+    : ["-i", input, "-c", "copy", "-metadata:s:v:0", "rotate=90"];
+  execFileSync(bins.ffmpeg, ["-v", "error", "-nostdin", "-n", ...remux, output], { stdio: "pipe", timeout: 30_000 });
+  const facts = await probeMedia(output, { bins });
+  assert.deepEqual([facts.width, facts.height], [640, 360]);
+  assert.equal(Math.abs(facts.rotationDegrees) % 180, 90, "fixture must have a quarter-turn display matrix");
+  assert.deepEqual([facts.displayWidth, facts.displayHeight], [360, 640]);
+  assert.equal(facts.orientation, "portrait");
+  return facts;
+}
+
 test("persistent text is optional, Unicode bounded and never accepts malformed or multiline requests", () => {
   assert.equal(validatePersistentSubtitleText(undefined), null);
   assert.equal(validatePersistentSubtitleText(null), null);
@@ -226,9 +242,8 @@ mediaTest("source aliases are rejected before FFmpeg can truncate the original",
 });
 mediaTest("rotated source metadata uses display axes for actual subtitle and danmaku rendering", async () => {
   const rotated=outputFor("rotated-source");
-  execFileSync(bins.ffmpeg,["-v","error","-nostdin","-n","-i",input,"-c","copy","-metadata:s:v:0","rotate=90",rotated],{stdio:"pipe",timeout:30000});
-  const before=sha(rotated),facts=await probeMedia(rotated,{bins});
-  assert.deepEqual([facts.width,facts.height],[640,360]);assert.deepEqual([facts.displayWidth,facts.displayHeight],[360,640]);assert.equal(facts.orientation,"portrait");
+  await rotatedSource(rotated);
+  const before=sha(rotated);
   for(const mode of ["subtitle","danmaku"]){
     const output=outputFor(`rotated-${mode}`),request={...common(),input:rotated,output};
     const report=mode==="subtitle"?await renderWithSubtitles({...request,cues:[cue()]}):await renderDanmaku({...request,items:[{at:0.1,text:"旋转弹幕",mode:"top"}]});
@@ -250,9 +265,9 @@ mediaTest("soft subtitle mux rejects video and subtitle aliases before any sourc
 });
 mediaTest("soft subtitle mux preserves rotated coded axes, display axes and encoded video packets", async () => {
   const rotated=outputFor("softmux-rotated-source"),output=outputFor("softmux-rotated-output");
-  execFileSync(bins.ffmpeg,["-v","error","-nostdin","-n","-i",input,"-c","copy","-metadata:s:v:0","rotate=90",rotated],{stdio:"pipe",timeout:30000});
+  const sourceFacts=await rotatedSource(rotated);
   const subtitles=path.join(root,"rotated-softmux.srt");fs.writeFileSync(subtitles,"1\n00:00:00,100 --> 00:00:01,100\n旋转字幕\n");
-  const before=sha(rotated),subtitleHash=sha(subtitles),sourceFacts=await probeMedia(rotated,{bins});
+  const before=sha(rotated),subtitleHash=sha(subtitles);
   const report=await softMux({input:rotated,output,subtitles:[{path:subtitles}],bins});
   assert.ok(report.checks.every(check=>check.ok!==false));const outputFacts=await probeMedia(output,{bins});
   for(const key of ["width","height","displayWidth","displayHeight","rotationDegrees","videoCodec"])assert.equal(outputFacts[key],sourceFacts[key],key);
