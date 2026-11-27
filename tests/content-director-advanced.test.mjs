@@ -321,14 +321,20 @@ test("model blocker triggers a bounded repair and a fresh final audit", async t 
 test("an approved visual package can be reordered without overwriting the previous revision", async t => {
   const model = new AdvancedModel();
   const f = await fixture(t, model);
+  const claim = await new GeoOsService({ store: f.store }).approveClaim("C003", {
+    approvedBy: "advanced fixture reviewer", publicLevel: "approved_public",
+  });
   const job = await f.director.createJob({
     intent: "写一篇内容系统文章，并配两张可编辑图",
     explicitKind: "article_visual",
     claimIds: ["C003"],
+    mustKeep: [claim.source.url],
     targetLength: { minCharacters: 500, maxCharacters: 1200 },
     enableVisuals: true,
   }, context());
   const first = await f.director.processJob(job.id);
+  assert.equal(first.status, "needs_review");
+  assert.ok(first.result.article.body.includes(claim.source.url));
   assert.equal(first.result.visuals.length, 2);
   const ids = first.result.visuals.map(row => row.id);
   const revised = await f.director.reviseVisuals(job.id, {
@@ -339,6 +345,31 @@ test("an approved visual package can be reordered without overwriting the previo
   assert.notEqual(revised.result.contentHash, first.result.contentHash);
   assert.equal(revised.status, "needs_review");
   assert.equal(f.store.snapshot().contentDirectorRevisions.some(row => row.kind === "visuals"), true);
+});
+
+test("article citations retain legacy URL sources and reject private or unbound links", async t => {
+  const f = await fixture(t, new AdvancedModel());
+  const legacy = "https://nodejs.org/en/about";
+  const restricted = "https://nodejs.org/private";
+  const unbound = "https://nodejs.org/other";
+  await f.store.mutate({ type: "fixture.citation_sources", actor: "fixture" }, state => {
+    const claim = state.claims.find(row => row.id === "C003");
+    claim.source = legacy;
+    state.claims.push(
+      { ...claim, id: "C-test-private", publicLevel: "approved_public", source: { visibility: "private", url: restricted } },
+      { ...claim, id: "C-test-unbound", publicLevel: "approved_public", source: { visibility: "public", url: unbound } },
+    );
+  });
+  const job = await f.director.createJob({
+    intent: "写一篇关于来源引用的文章", explicitKind: "article", claimIds: ["C003", "C-test-private"],
+    mustKeep: [legacy, restricted, unbound], targetLength: { minCharacters: 500, maxCharacters: 1600 },
+  }, context());
+  const { status, result } = await f.director.processJob(job.id);
+  assert.equal(status, "blocked");
+  assert.ok(result.article.body.includes(legacy));
+  const rejected = result.findings.filter(row => row.code === "UNBOUND_URL")
+    .map(row => result.article.body.slice(row.location).split(/[；。]/u)[0]);
+  assert.deepEqual(new Set(rejected), new Set([restricted, unbound]));
 });
 
 test("pure visual and video jobs freeze readable private result artifacts", async t => {
