@@ -1,0 +1,41 @@
+name: Test
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Audit tracked public distribution
+        run: |
+          export_dir=$(mktemp -d)
+          trap 'rm -rf -- "$export_dir"' EXIT
+          git archive HEAD | tar -x -C "$export_dir"
+          node scripts/public-audit.mjs "$export_dir" --distribution
+      - name: Install locked product and browser gateway dependencies
+        run: |
+          npm install --global pnpm@11.25.0
+          pnpm install --frozen-lockfile
+          pnpm --dir deploy/bot-browser install --frozen-lockfile --ignore-scripts --prod
+      - name: Install and verify media tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fontconfig
+          ffmpeg -version
+          ffprobe -version
+      - name: Run product and inherited regression tests
+        run: pnpm test
+      - name: Verify local first-run demo
+        run: node scripts/bot-admin.mjs demo --once

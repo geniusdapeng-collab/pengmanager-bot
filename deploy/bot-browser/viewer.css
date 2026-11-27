@@ -1,0 +1,15 @@
+html { background: #202b21; color: #fffdf2; font: 14px/1.45 system-ui, sans-serif; }
+body { margin: 0; display: flex; height: 100vh; flex-direction: column; }
+[hidden] { display: none !important; }
+header, #keyboard, #actions { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; }
+header, #keyboard { padding: .45rem .54rem; border-bottom: 1px solid #465546; }
+header { justify-content: space-between; }
+p { margin: 0; }
+button, input { font: inherit; min-height: 38px; border-radius: 5px; border: 1px solid #6a8066; }
+button { cursor: pointer; color: inherit; background: #304732; padding: .2rem .5rem; }
+button:hover { background: #435d3f; }
+button:active { background: #263b26; }
+button:focus-visible, input:focus-visible { outline: 2px solid #c2e381; outline-offset: 2px; }
+input { color: #22281e; background: #fff; box-sizing: border-box; max-width: 100%; min-width: 9rem; font-size: 16px; padding-inline: .35rem; }
+#screen { flex: 1 1 0; overflow: hidden; min-height: 0; }
+#screen canvas { touch-action: none; }

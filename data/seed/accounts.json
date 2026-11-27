@@ -1,0 +1,29 @@
+[
+  {
+    "id": "demo-github",
+    "platformId": "github",
+    "platform": "GitHub",
+    "wave": "A",
+    "status": "draft",
+    "policyStatus": "manual_review_required",
+    "policyCheckedAt": null,
+    "handle": "",
+    "displayName": "示例账号（未绑定）",
+    "displayNameZh": "示例账号（未绑定）",
+    "displayNameEn": "Example account (unbound)",
+    "language": "zh-CN",
+    "name": "示例账号",
+    "nameZh": "示例账号",
+    "nameEn": "Example account",
+    "bio": "用于本地演示。",
+    "bioZh": "用于本地演示。",
+    "bioEn": "For local demonstration.",
+    "audience": "本地体验者",
+    "contentFocus": "示例文档",
+    "cadence": "手动",
+    "publishMode": "manual",
+    "formats": [
+      "README"
+    ]
+  }
+]

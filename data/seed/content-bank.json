@@ -1,0 +1,28 @@
+[
+  {
+    "id": "DEMO-001",
+    "track": "演示",
+    "theme": "答案证据",
+    "title": "如何复测一条 AI 回答",
+    "hook": "同一个问题，下一次回答有变化吗？",
+    "thesis": "记录问题、答案与引用，以便用相同问题比较两次结果。",
+    "sourceIds": [],
+    "evidenceLevel": "B",
+    "primaryPlatform": "GitHub",
+    "secondaryPlatform": "",
+    "format": "技术文章",
+    "audience": "开源项目维护者与读者",
+    "funnelStage": "认知",
+    "keywords": [
+      "证据",
+      "引用",
+      "复测"
+    ],
+    "interactionQuestion": "你会记录哪些信息来复现查询？",
+    "priority": "P2",
+    "productionDifficulty": "低",
+    "batch": 1,
+    "riskReview": "仅本地示例",
+    "state": "待立项"
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "id": "CNT-001",
+    "title": "合成来源片段 1",
+    "contentType": "article",
+    "claimIds": [
+      "C003"
+    ],
+    "body": "这是一份合成测试草稿正文，仅用来验证系统状态，不代表线上作品。",
+    "status": "draft",
+    "version": 1,
+    "platforms": [
+      "GitHub"
+    ],
+    "owner": "Synthetic fixture author",
+    "opinion": false,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "CNT-002",
+    "title": "合成来源片段 2",
+    "contentType": "article",
+    "claimIds": [
+      "C003"
+    ],
+    "body": "这是一份合成测试草稿正文，仅用来验证系统状态，不代表线上作品。",
+    "status": "draft",
+    "version": 1,
+    "platforms": [
+      "GitHub"
+    ],
+    "owner": "Synthetic fixture author",
+    "opinion": false,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "CNT-003",
+    "title": "合成来源片段 3",
+    "contentType": "article",
+    "claimIds": [
+      "C003"
+    ],
+    "body": "这是一份合成测试草稿正文，仅用来验证系统状态，不代表线上作品。",
+    "status": "draft",
+    "version": 1,
+    "platforms": [
+      "GitHub"
+    ],
+    "owner": "Synthetic fixture author",
+    "opinion": false,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

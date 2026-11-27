@@ -1,0 +1,41 @@
+PengManager BOT Edition
+Copyright 2026 Dapeng Li / PengManager
+
+The PengManager-owned software in this distribution is licensed under the
+Apache License, Version 2.0. Third-party components retain their own terms.
+
+GeoEvidence Studio
+Copyright 2026 Dapeng Li
+https://github.com/geniusdapeng-collab/geo-evidence-studio
+Imported source baseline: 06b47a15fd114541bd3147dc5c07b944c36bc8da
+Apache License, Version 2.0. The public edition uses an adapted source tree
+with demonstration fixtures. The original license and attribution are in
+engines/geo-evidence/LICENSE and engines/geo-evidence/NOTICE.
+
+WorkLoom-video-edit
+https://github.com/geniusdapeng-collab/WorkLoom-video-edit
+Apache License, Version 2.0. The public edition includes the native engine source and a reviewed asset
+inventory. Operators configure local runtime tools and separately licensed
+resources for the work they perform. The upstream license is in engines/video-edit/LICENSE.
+
+DeepSeek-V4.1-Flash-1017 tokenizer and prompt format
+Copyright (c) 2023 DeepSeek
+https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170
+MIT License. The tokenizer is included unchanged. The token-window module
+adapts the public encoding recipe. The license text accompanies the tokenizer
+at engines/video-edit/packages/base/model-router/assets/deepseek-v4.1-1017.LICENSE.
+
+Font Software
+Each of the 29 unchanged font files is separately distributed under the
+SIL Open Font License 1.1. The full license and per-font copyright notices
+are in engines/video-edit/bundles/ai-video/library/fonts/licenses/. The
+distribution-assets.json file identifies every pinned font binary.
+
+Self-generated color lookup tables
+The bundled .cube tables are emitted by the WorkLoom-video-edit source
+generator. See engines/video-edit/bundles/ai-video/library/luts/manifest.json
+for the public color formulas and verification parameters.
+
+Registry dependencies installed separately include sharp and Hugging Face
+Tokenizers under the Apache License, Version 2.0. No FFmpeg executable is
+part of this source distribution.

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check PengManager BOT health every minute
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

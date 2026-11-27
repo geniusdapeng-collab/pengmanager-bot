@@ -1,0 +1,27 @@
+[Unit]
+Description=PengManager dedicated browser profile
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pengmanager-browser
+Group=pengmanager-browser-rfb
+RuntimeDirectory=pengmanager-browser
+RuntimeDirectoryMode=0750
+StateDirectory=pengmanager-browser
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/bin/bash /opt/pengmanager-bot/deploy/bot-browser/worker.sh
+Restart=always
+RestartSec=3
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>鹏经理 · 云工位</title>
+    <link rel="stylesheet" href="/bot-browser/viewer.css">
+    <script type="module" src="/bot-browser/viewer.js"></script>
+  </head>
+  <body>
+    <header>
+      <p id="status" role="status">正在建立专属工位连接…</p>
+      <div id="actions" hidden>
+        <button type="button" id="keyboard-toggle" aria-controls="keyboard" aria-expanded="false">软键盘</button>
+        <button type="button" id="disconnect">断开画面</button>
+      </div>
+    </header>
+    <div id="keyboard" hidden>
+      <label for="enter-text">输入到云工位</label>
+      <input id="enter-text" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="512">
+      <button type="button" id="type">送出文字</button>
+      <button type="button" id="mask" aria-pressed="false">隐藏文字</button>
+      <button type="button" id="backspace">退格</button>
+      <button type="button" id="enter">回车</button>
+    </div>
+    <main id="screen" aria-label="云工位画面"></main>
+  </body>
+</html>

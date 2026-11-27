@@ -1,0 +1,1772 @@
+{
+  "queries": [
+    {
+      "id": "Q001",
+      "text": "旧版合成输入：Q001",
+      "locale": "zh-CN",
+      "intent": "entity",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q002",
+      "text": "旧版合成输入：Q002",
+      "locale": "zh-CN",
+      "intent": "category",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q003",
+      "text": "旧版合成输入：Q003",
+      "locale": "zh-CN",
+      "intent": "entity",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q004",
+      "text": "旧版合成输入：Q004",
+      "locale": "zh-CN",
+      "intent": "category",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q005",
+      "text": "旧版合成输入：Q005",
+      "locale": "zh-CN",
+      "intent": "entity",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q006",
+      "text": "旧版合成输入：Q006",
+      "locale": "zh-CN",
+      "intent": "category",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q007",
+      "text": "旧版合成输入：Q007",
+      "locale": "zh-CN",
+      "intent": "entity",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q008",
+      "text": "旧版合成输入：Q008",
+      "locale": "zh-CN",
+      "intent": "category",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q009",
+      "text": "旧版合成输入：Q009",
+      "locale": "zh-CN",
+      "intent": "entity",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q010",
+      "text": "旧版合成输入：Q010",
+      "locale": "zh-CN",
+      "intent": "category",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q011",
+      "text": "旧版合成输入：Q011",
+      "locale": "zh-CN",
+      "intent": "entity",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    },
+    {
+      "id": "Q012",
+      "text": "旧版合成输入：Q012",
+      "locale": "zh-CN",
+      "intent": "category",
+      "priority": "P0",
+      "surfaces": [
+        "fixture"
+      ],
+      "state": "active"
+    }
+  ],
+  "claims": [
+    {
+      "id": "C001",
+      "type": "project",
+      "text": "旧版合成输入：C001",
+      "source": {
+        "label": "合成开发者测试材料",
+        "visibility": "private"
+      },
+      "evidenceLevel": "A",
+      "state": "draft",
+      "publicLevel": "private",
+      "sensitivity": "low",
+      "expiresAt": null
+    },
+    {
+      "id": "C002",
+      "type": "project",
+      "text": "旧版合成输入：C002",
+      "source": {
+        "label": "合成开发者测试材料",
+        "visibility": "public",
+        "url": "https://nodejs.org/en"
+      },
+      "evidenceLevel": "A",
+      "state": "draft",
+      "publicLevel": "private",
+      "sensitivity": "low",
+      "expiresAt": null
+    },
+    {
+      "id": "C003",
+      "type": "project",
+      "text": "旧版合成输入：C003",
+      "source": {
+        "label": "合成开发者测试材料",
+        "visibility": "public",
+        "url": "https://nodejs.org/en"
+      },
+      "evidenceLevel": "A",
+      "state": "draft",
+      "publicLevel": "private",
+      "sensitivity": "low",
+      "expiresAt": null
+    },
+    {
+      "id": "C004",
+      "type": "project",
+      "text": "旧版合成输入：C004",
+      "source": {
+        "label": "合成开发者测试材料",
+        "visibility": "private"
+      },
+      "evidenceLevel": "A",
+      "state": "draft",
+      "publicLevel": "private",
+      "sensitivity": "low",
+      "expiresAt": null
+    },
+    {
+      "id": "C005",
+      "type": "project",
+      "text": "旧版合成输入：C005",
+      "source": {
+        "label": "合成开发者测试材料",
+        "visibility": "private"
+      },
+      "evidenceLevel": "A",
+      "state": "draft",
+      "publicLevel": "private",
+      "sensitivity": "low",
+      "expiresAt": null
+    }
+  ],
+  "contentBank": [
+    {
+      "id": "C001",
+      "track": "fixture",
+      "theme": "合成测试主题 1",
+      "title": "旧版合成输入：C001",
+      "hook": "合成开头 1",
+      "thesis": "合成论点 1",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C002",
+      "track": "fixture",
+      "theme": "合成测试主题 2",
+      "title": "旧版合成输入：C002",
+      "hook": "合成开头 2",
+      "thesis": "合成论点 2",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C003",
+      "track": "fixture",
+      "theme": "合成测试主题 3",
+      "title": "旧版合成输入：C003",
+      "hook": "合成开头 3",
+      "thesis": "合成论点 3",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C004",
+      "track": "fixture",
+      "theme": "合成测试主题 4",
+      "title": "旧版合成输入：C004",
+      "hook": "合成开头 4",
+      "thesis": "合成论点 4",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C005",
+      "track": "fixture",
+      "theme": "合成测试主题 5",
+      "title": "旧版合成输入：C005",
+      "hook": "合成开头 5",
+      "thesis": "合成论点 5",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C006",
+      "track": "fixture",
+      "theme": "合成测试主题 6",
+      "title": "旧版合成输入：C006",
+      "hook": "合成开头 6",
+      "thesis": "合成论点 6",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C007",
+      "track": "fixture",
+      "theme": "合成测试主题 7",
+      "title": "旧版合成输入：C007",
+      "hook": "合成开头 7",
+      "thesis": "合成论点 7",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C008",
+      "track": "fixture",
+      "theme": "合成测试主题 8",
+      "title": "旧版合成输入：C008",
+      "hook": "合成开头 8",
+      "thesis": "合成论点 8",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C009",
+      "track": "fixture",
+      "theme": "合成测试主题 9",
+      "title": "旧版合成输入：C009",
+      "hook": "合成开头 9",
+      "thesis": "合成论点 9",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C010",
+      "track": "fixture",
+      "theme": "合成测试主题 10",
+      "title": "旧版合成输入：C010",
+      "hook": "合成开头 10",
+      "thesis": "合成论点 10",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C011",
+      "track": "fixture",
+      "theme": "合成测试主题 11",
+      "title": "旧版合成输入：C011",
+      "hook": "合成开头 11",
+      "thesis": "合成论点 11",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C012",
+      "track": "fixture",
+      "theme": "合成测试主题 12",
+      "title": "旧版合成输入：C012",
+      "hook": "合成开头 12",
+      "thesis": "合成论点 12",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C013",
+      "track": "fixture",
+      "theme": "合成测试主题 13",
+      "title": "旧版合成输入：C013",
+      "hook": "合成开头 13",
+      "thesis": "合成论点 13",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C014",
+      "track": "fixture",
+      "theme": "合成测试主题 14",
+      "title": "旧版合成输入：C014",
+      "hook": "合成开头 14",
+      "thesis": "合成论点 14",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C015",
+      "track": "fixture",
+      "theme": "合成测试主题 15",
+      "title": "旧版合成输入：C015",
+      "hook": "合成开头 15",
+      "thesis": "合成论点 15",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C016",
+      "track": "fixture",
+      "theme": "合成测试主题 16",
+      "title": "旧版合成输入：C016",
+      "hook": "合成开头 16",
+      "thesis": "合成论点 16",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C017",
+      "track": "fixture",
+      "theme": "合成测试主题 17",
+      "title": "旧版合成输入：C017",
+      "hook": "合成开头 17",
+      "thesis": "合成论点 17",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C018",
+      "track": "fixture",
+      "theme": "合成测试主题 18",
+      "title": "旧版合成输入：C018",
+      "hook": "合成开头 18",
+      "thesis": "合成论点 18",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C019",
+      "track": "fixture",
+      "theme": "合成测试主题 19",
+      "title": "旧版合成输入：C019",
+      "hook": "合成开头 19",
+      "thesis": "合成论点 19",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C020",
+      "track": "fixture",
+      "theme": "合成测试主题 20",
+      "title": "旧版合成输入：C020",
+      "hook": "合成开头 20",
+      "thesis": "合成论点 20",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C021",
+      "track": "fixture",
+      "theme": "合成测试主题 21",
+      "title": "旧版合成输入：C021",
+      "hook": "合成开头 21",
+      "thesis": "合成论点 21",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C022",
+      "track": "fixture",
+      "theme": "合成测试主题 22",
+      "title": "旧版合成输入：C022",
+      "hook": "合成开头 22",
+      "thesis": "合成论点 22",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C023",
+      "track": "fixture",
+      "theme": "合成测试主题 23",
+      "title": "旧版合成输入：C023",
+      "hook": "合成开头 23",
+      "thesis": "合成论点 23",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C024",
+      "track": "fixture",
+      "theme": "合成测试主题 24",
+      "title": "旧版合成输入：C024",
+      "hook": "合成开头 24",
+      "thesis": "合成论点 24",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C025",
+      "track": "fixture",
+      "theme": "合成测试主题 25",
+      "title": "旧版合成输入：C025",
+      "hook": "合成开头 25",
+      "thesis": "合成论点 25",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C026",
+      "track": "fixture",
+      "theme": "合成测试主题 26",
+      "title": "旧版合成输入：C026",
+      "hook": "合成开头 26",
+      "thesis": "合成论点 26",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C027",
+      "track": "fixture",
+      "theme": "合成测试主题 27",
+      "title": "旧版合成输入：C027",
+      "hook": "合成开头 27",
+      "thesis": "合成论点 27",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C028",
+      "track": "fixture",
+      "theme": "合成测试主题 28",
+      "title": "旧版合成输入：C028",
+      "hook": "合成开头 28",
+      "thesis": "合成论点 28",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C029",
+      "track": "fixture",
+      "theme": "合成测试主题 29",
+      "title": "旧版合成输入：C029",
+      "hook": "合成开头 29",
+      "thesis": "合成论点 29",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C030",
+      "track": "fixture",
+      "theme": "合成测试主题 30",
+      "title": "旧版合成输入：C030",
+      "hook": "合成开头 30",
+      "thesis": "合成论点 30",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C031",
+      "track": "fixture",
+      "theme": "合成测试主题 31",
+      "title": "旧版合成输入：C031",
+      "hook": "合成开头 31",
+      "thesis": "合成论点 31",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C032",
+      "track": "fixture",
+      "theme": "合成测试主题 32",
+      "title": "旧版合成输入：C032",
+      "hook": "合成开头 32",
+      "thesis": "合成论点 32",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C033",
+      "track": "fixture",
+      "theme": "合成测试主题 33",
+      "title": "旧版合成输入：C033",
+      "hook": "合成开头 33",
+      "thesis": "合成论点 33",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C034",
+      "track": "fixture",
+      "theme": "合成测试主题 34",
+      "title": "旧版合成输入：C034",
+      "hook": "合成开头 34",
+      "thesis": "合成论点 34",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C035",
+      "track": "fixture",
+      "theme": "合成测试主题 35",
+      "title": "旧版合成输入：C035",
+      "hook": "合成开头 35",
+      "thesis": "合成论点 35",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C036",
+      "track": "fixture",
+      "theme": "合成测试主题 36",
+      "title": "旧版合成输入：C036",
+      "hook": "合成开头 36",
+      "thesis": "合成论点 36",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C037",
+      "track": "fixture",
+      "theme": "合成测试主题 37",
+      "title": "旧版合成输入：C037",
+      "hook": "合成开头 37",
+      "thesis": "合成论点 37",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C038",
+      "track": "fixture",
+      "theme": "合成测试主题 38",
+      "title": "旧版合成输入：C038",
+      "hook": "合成开头 38",
+      "thesis": "合成论点 38",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C039",
+      "track": "fixture",
+      "theme": "合成测试主题 39",
+      "title": "旧版合成输入：C039",
+      "hook": "合成开头 39",
+      "thesis": "合成论点 39",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C040",
+      "track": "fixture",
+      "theme": "合成测试主题 40",
+      "title": "旧版合成输入：C040",
+      "hook": "合成开头 40",
+      "thesis": "合成论点 40",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C041",
+      "track": "fixture",
+      "theme": "合成测试主题 41",
+      "title": "旧版合成输入：C041",
+      "hook": "合成开头 41",
+      "thesis": "合成论点 41",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C042",
+      "track": "fixture",
+      "theme": "合成测试主题 42",
+      "title": "旧版合成输入：C042",
+      "hook": "合成开头 42",
+      "thesis": "合成论点 42",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C043",
+      "track": "fixture",
+      "theme": "合成测试主题 43",
+      "title": "旧版合成输入：C043",
+      "hook": "合成开头 43",
+      "thesis": "合成论点 43",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C044",
+      "track": "fixture",
+      "theme": "合成测试主题 44",
+      "title": "旧版合成输入：C044",
+      "hook": "合成开头 44",
+      "thesis": "合成论点 44",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C045",
+      "track": "fixture",
+      "theme": "合成测试主题 45",
+      "title": "旧版合成输入：C045",
+      "hook": "合成开头 45",
+      "thesis": "合成论点 45",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C046",
+      "track": "fixture",
+      "theme": "合成测试主题 46",
+      "title": "旧版合成输入：C046",
+      "hook": "合成开头 46",
+      "thesis": "合成论点 46",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C047",
+      "track": "fixture",
+      "theme": "合成测试主题 47",
+      "title": "旧版合成输入：C047",
+      "hook": "合成开头 47",
+      "thesis": "合成论点 47",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C048",
+      "track": "fixture",
+      "theme": "合成测试主题 48",
+      "title": "旧版合成输入：C048",
+      "hook": "合成开头 48",
+      "thesis": "合成论点 48",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C049",
+      "track": "fixture",
+      "theme": "合成测试主题 49",
+      "title": "旧版合成输入：C049",
+      "hook": "合成开头 49",
+      "thesis": "合成论点 49",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C050",
+      "track": "fixture",
+      "theme": "合成测试主题 50",
+      "title": "旧版合成输入：C050",
+      "hook": "合成开头 50",
+      "thesis": "合成论点 50",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C051",
+      "track": "fixture",
+      "theme": "合成测试主题 51",
+      "title": "旧版合成输入：C051",
+      "hook": "合成开头 51",
+      "thesis": "合成论点 51",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C052",
+      "track": "fixture",
+      "theme": "合成测试主题 52",
+      "title": "旧版合成输入：C052",
+      "hook": "合成开头 52",
+      "thesis": "合成论点 52",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C053",
+      "track": "fixture",
+      "theme": "合成测试主题 53",
+      "title": "旧版合成输入：C053",
+      "hook": "合成开头 53",
+      "thesis": "合成论点 53",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C054",
+      "track": "fixture",
+      "theme": "合成测试主题 54",
+      "title": "旧版合成输入：C054",
+      "hook": "合成开头 54",
+      "thesis": "合成论点 54",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C055",
+      "track": "fixture",
+      "theme": "合成测试主题 55",
+      "title": "旧版合成输入：C055",
+      "hook": "合成开头 55",
+      "thesis": "合成论点 55",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C056",
+      "track": "fixture",
+      "theme": "合成测试主题 56",
+      "title": "旧版合成输入：C056",
+      "hook": "合成开头 56",
+      "thesis": "合成论点 56",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C057",
+      "track": "fixture",
+      "theme": "合成测试主题 57",
+      "title": "旧版合成输入：C057",
+      "hook": "合成开头 57",
+      "thesis": "合成论点 57",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C058",
+      "track": "fixture",
+      "theme": "合成测试主题 58",
+      "title": "旧版合成输入：C058",
+      "hook": "合成开头 58",
+      "thesis": "合成论点 58",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C059",
+      "track": "fixture",
+      "theme": "合成测试主题 59",
+      "title": "旧版合成输入：C059",
+      "hook": "合成开头 59",
+      "thesis": "合成论点 59",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C060",
+      "track": "fixture",
+      "theme": "合成测试主题 60",
+      "title": "旧版合成输入：C060",
+      "hook": "合成开头 60",
+      "thesis": "合成论点 60",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C061",
+      "track": "fixture",
+      "theme": "合成测试主题 61",
+      "title": "旧版合成输入：C061",
+      "hook": "合成开头 61",
+      "thesis": "合成论点 61",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C062",
+      "track": "fixture",
+      "theme": "合成测试主题 62",
+      "title": "旧版合成输入：C062",
+      "hook": "合成开头 62",
+      "thesis": "合成论点 62",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C063",
+      "track": "fixture",
+      "theme": "合成测试主题 63",
+      "title": "旧版合成输入：C063",
+      "hook": "合成开头 63",
+      "thesis": "合成论点 63",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C064",
+      "track": "fixture",
+      "theme": "合成测试主题 64",
+      "title": "旧版合成输入：C064",
+      "hook": "合成开头 64",
+      "thesis": "合成论点 64",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C065",
+      "track": "fixture",
+      "theme": "合成测试主题 65",
+      "title": "旧版合成输入：C065",
+      "hook": "合成开头 65",
+      "thesis": "合成论点 65",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C066",
+      "track": "fixture",
+      "theme": "合成测试主题 66",
+      "title": "旧版合成输入：C066",
+      "hook": "合成开头 66",
+      "thesis": "合成论点 66",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C067",
+      "track": "fixture",
+      "theme": "合成测试主题 67",
+      "title": "旧版合成输入：C067",
+      "hook": "合成开头 67",
+      "thesis": "合成论点 67",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C068",
+      "track": "fixture",
+      "theme": "合成测试主题 68",
+      "title": "旧版合成输入：C068",
+      "hook": "合成开头 68",
+      "thesis": "合成论点 68",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C069",
+      "track": "fixture",
+      "theme": "合成测试主题 69",
+      "title": "旧版合成输入：C069",
+      "hook": "合成开头 69",
+      "thesis": "合成论点 69",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C070",
+      "track": "fixture",
+      "theme": "合成测试主题 70",
+      "title": "旧版合成输入：C070",
+      "hook": "合成开头 70",
+      "thesis": "合成论点 70",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C071",
+      "track": "fixture",
+      "theme": "合成测试主题 71",
+      "title": "旧版合成输入：C071",
+      "hook": "合成开头 71",
+      "thesis": "合成论点 71",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C072",
+      "track": "fixture",
+      "theme": "合成测试主题 72",
+      "title": "旧版合成输入：C072",
+      "hook": "合成开头 72",
+      "thesis": "合成论点 72",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C073",
+      "track": "fixture",
+      "theme": "合成测试主题 73",
+      "title": "旧版合成输入：C073",
+      "hook": "合成开头 73",
+      "thesis": "合成论点 73",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C074",
+      "track": "fixture",
+      "theme": "合成测试主题 74",
+      "title": "旧版合成输入：C074",
+      "hook": "合成开头 74",
+      "thesis": "合成论点 74",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C075",
+      "track": "fixture",
+      "theme": "合成测试主题 75",
+      "title": "旧版合成输入：C075",
+      "hook": "合成开头 75",
+      "thesis": "合成论点 75",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C076",
+      "track": "fixture",
+      "theme": "合成测试主题 76",
+      "title": "旧版合成输入：C076",
+      "hook": "合成开头 76",
+      "thesis": "合成论点 76",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C077",
+      "track": "fixture",
+      "theme": "合成测试主题 77",
+      "title": "旧版合成输入：C077",
+      "hook": "合成开头 77",
+      "thesis": "合成论点 77",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C078",
+      "track": "fixture",
+      "theme": "合成测试主题 78",
+      "title": "旧版合成输入：C078",
+      "hook": "合成开头 78",
+      "thesis": "合成论点 78",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C079",
+      "track": "fixture",
+      "theme": "合成测试主题 79",
+      "title": "旧版合成输入：C079",
+      "hook": "合成开头 79",
+      "thesis": "合成论点 79",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C080",
+      "track": "fixture",
+      "theme": "合成测试主题 80",
+      "title": "旧版合成输入：C080",
+      "hook": "合成开头 80",
+      "thesis": "合成论点 80",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C081",
+      "track": "fixture",
+      "theme": "合成测试主题 81",
+      "title": "旧版合成输入：C081",
+      "hook": "合成开头 81",
+      "thesis": "合成论点 81",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C082",
+      "track": "fixture",
+      "theme": "合成测试主题 82",
+      "title": "旧版合成输入：C082",
+      "hook": "合成开头 82",
+      "thesis": "合成论点 82",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C083",
+      "track": "fixture",
+      "theme": "合成测试主题 83",
+      "title": "旧版合成输入：C083",
+      "hook": "合成开头 83",
+      "thesis": "合成论点 83",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C084",
+      "track": "fixture",
+      "theme": "合成测试主题 84",
+      "title": "旧版合成输入：C084",
+      "hook": "合成开头 84",
+      "thesis": "合成论点 84",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C085",
+      "track": "fixture",
+      "theme": "合成测试主题 85",
+      "title": "旧版合成输入：C085",
+      "hook": "合成开头 85",
+      "thesis": "合成论点 85",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C086",
+      "track": "fixture",
+      "theme": "合成测试主题 86",
+      "title": "旧版合成输入：C086",
+      "hook": "合成开头 86",
+      "thesis": "合成论点 86",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C087",
+      "track": "fixture",
+      "theme": "合成测试主题 87",
+      "title": "旧版合成输入：C087",
+      "hook": "合成开头 87",
+      "thesis": "合成论点 87",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C088",
+      "track": "fixture",
+      "theme": "合成测试主题 88",
+      "title": "旧版合成输入：C088",
+      "hook": "合成开头 88",
+      "thesis": "合成论点 88",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C089",
+      "track": "fixture",
+      "theme": "合成测试主题 89",
+      "title": "旧版合成输入：C089",
+      "hook": "合成开头 89",
+      "thesis": "合成论点 89",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C090",
+      "track": "fixture",
+      "theme": "合成测试主题 90",
+      "title": "旧版合成输入：C090",
+      "hook": "合成开头 90",
+      "thesis": "合成论点 90",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C091",
+      "track": "fixture",
+      "theme": "合成测试主题 91",
+      "title": "旧版合成输入：C091",
+      "hook": "合成开头 91",
+      "thesis": "合成论点 91",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C092",
+      "track": "fixture",
+      "theme": "合成测试主题 92",
+      "title": "旧版合成输入：C092",
+      "hook": "合成开头 92",
+      "thesis": "合成论点 92",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C093",
+      "track": "fixture",
+      "theme": "合成测试主题 93",
+      "title": "旧版合成输入：C093",
+      "hook": "合成开头 93",
+      "thesis": "合成论点 93",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C094",
+      "track": "fixture",
+      "theme": "合成测试主题 94",
+      "title": "旧版合成输入：C094",
+      "hook": "合成开头 94",
+      "thesis": "合成论点 94",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C095",
+      "track": "fixture",
+      "theme": "合成测试主题 95",
+      "title": "旧版合成输入：C095",
+      "hook": "合成开头 95",
+      "thesis": "合成论点 95",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C096",
+      "track": "fixture",
+      "theme": "合成测试主题 96",
+      "title": "旧版合成输入：C096",
+      "hook": "合成开头 96",
+      "thesis": "合成论点 96",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C097",
+      "track": "fixture",
+      "theme": "合成测试主题 97",
+      "title": "旧版合成输入：C097",
+      "hook": "合成开头 97",
+      "thesis": "合成论点 97",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C098",
+      "track": "fixture",
+      "theme": "合成测试主题 98",
+      "title": "旧版合成输入：C098",
+      "hook": "合成开头 98",
+      "thesis": "合成论点 98",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C099",
+      "track": "fixture",
+      "theme": "合成测试主题 99",
+      "title": "旧版合成输入：C099",
+      "hook": "合成开头 99",
+      "thesis": "合成论点 99",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C100",
+      "track": "fixture",
+      "theme": "合成测试主题 100",
+      "title": "旧版合成输入：C100",
+      "hook": "合成开头 100",
+      "thesis": "合成论点 100",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C101",
+      "track": "fixture",
+      "theme": "合成测试主题 101",
+      "title": "旧版合成输入：C101",
+      "hook": "合成开头 101",
+      "thesis": "合成论点 101",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C102",
+      "track": "fixture",
+      "theme": "合成测试主题 102",
+      "title": "旧版合成输入：C102",
+      "hook": "合成开头 102",
+      "thesis": "合成论点 102",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C103",
+      "track": "fixture",
+      "theme": "合成测试主题 103",
+      "title": "旧版合成输入：C103",
+      "hook": "合成开头 103",
+      "thesis": "合成论点 103",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C104",
+      "track": "fixture",
+      "theme": "合成测试主题 104",
+      "title": "旧版合成输入：C104",
+      "hook": "合成开头 104",
+      "thesis": "合成论点 104",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C105",
+      "track": "fixture",
+      "theme": "合成测试主题 105",
+      "title": "旧版合成输入：C105",
+      "hook": "合成开头 105",
+      "thesis": "合成论点 105",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C106",
+      "track": "fixture",
+      "theme": "合成测试主题 106",
+      "title": "旧版合成输入：C106",
+      "hook": "合成开头 106",
+      "thesis": "合成论点 106",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C107",
+      "track": "fixture",
+      "theme": "合成测试主题 107",
+      "title": "旧版合成输入：C107",
+      "hook": "合成开头 107",
+      "thesis": "合成论点 107",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C108",
+      "track": "fixture",
+      "theme": "合成测试主题 108",
+      "title": "旧版合成输入：C108",
+      "hook": "合成开头 108",
+      "thesis": "合成论点 108",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C109",
+      "track": "fixture",
+      "theme": "合成测试主题 109",
+      "title": "旧版合成输入：C109",
+      "hook": "合成开头 109",
+      "thesis": "合成论点 109",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C110",
+      "track": "fixture",
+      "theme": "合成测试主题 110",
+      "title": "旧版合成输入：C110",
+      "hook": "合成开头 110",
+      "thesis": "合成论点 110",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C111",
+      "track": "fixture",
+      "theme": "合成测试主题 111",
+      "title": "旧版合成输入：C111",
+      "hook": "合成开头 111",
+      "thesis": "合成论点 111",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C112",
+      "track": "fixture",
+      "theme": "合成测试主题 112",
+      "title": "旧版合成输入：C112",
+      "hook": "合成开头 112",
+      "thesis": "合成论点 112",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C113",
+      "track": "fixture",
+      "theme": "合成测试主题 113",
+      "title": "旧版合成输入：C113",
+      "hook": "合成开头 113",
+      "thesis": "合成论点 113",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C114",
+      "track": "fixture",
+      "theme": "合成测试主题 114",
+      "title": "旧版合成输入：C114",
+      "hook": "合成开头 114",
+      "thesis": "合成论点 114",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C115",
+      "track": "fixture",
+      "theme": "合成测试主题 115",
+      "title": "旧版合成输入：C115",
+      "hook": "合成开头 115",
+      "thesis": "合成论点 115",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C116",
+      "track": "fixture",
+      "theme": "合成测试主题 116",
+      "title": "旧版合成输入：C116",
+      "hook": "合成开头 116",
+      "thesis": "合成论点 116",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C117",
+      "track": "fixture",
+      "theme": "合成测试主题 117",
+      "title": "旧版合成输入：C117",
+      "hook": "合成开头 117",
+      "thesis": "合成论点 117",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C118",
+      "track": "fixture",
+      "theme": "合成测试主题 118",
+      "title": "旧版合成输入：C118",
+      "hook": "合成开头 118",
+      "thesis": "合成论点 118",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C119",
+      "track": "fixture",
+      "theme": "合成测试主题 119",
+      "title": "旧版合成输入：C119",
+      "hook": "合成开头 119",
+      "thesis": "合成论点 119",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    },
+    {
+      "id": "C120",
+      "track": "fixture",
+      "theme": "合成测试主题 120",
+      "title": "旧版合成输入：C120",
+      "hook": "合成开头 120",
+      "thesis": "合成论点 120",
+      "sourceIds": [
+        "C003"
+      ],
+      "evidenceLevel": "A",
+      "status": "draft"
+    }
+  ]
+}

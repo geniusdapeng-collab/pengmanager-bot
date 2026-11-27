@@ -1,0 +1,74 @@
+[
+  {
+    "id": "C001",
+    "type": "project",
+    "text": "第1条合成测试事实，用于验证审核、失效与公开范围。",
+    "source": {
+      "label": "合成开发者测试材料",
+      "visibility": "private"
+    },
+    "evidenceLevel": "A",
+    "state": "draft",
+    "publicLevel": "private",
+    "sensitivity": "low",
+    "expiresAt": null
+  },
+  {
+    "id": "C002",
+    "type": "project",
+    "text": "第2条合成测试事实，用于验证审核、失效与公开范围。",
+    "source": {
+      "label": "合成开发者测试材料",
+      "visibility": "public",
+      "url": "https://nodejs.org/en"
+    },
+    "evidenceLevel": "A",
+    "state": "draft",
+    "publicLevel": "private",
+    "sensitivity": "low",
+    "expiresAt": null
+  },
+  {
+    "id": "C003",
+    "type": "project",
+    "text": "第3条合成测试事实，用于验证审核、失效与公开范围。",
+    "source": {
+      "label": "合成开发者测试材料",
+      "visibility": "public",
+      "url": "https://nodejs.org/en"
+    },
+    "evidenceLevel": "A",
+    "state": "draft",
+    "publicLevel": "private",
+    "sensitivity": "low",
+    "expiresAt": null
+  },
+  {
+    "id": "C004",
+    "type": "project",
+    "text": "第4条合成测试事实，用于验证审核、失效与公开范围。",
+    "source": {
+      "label": "合成开发者测试材料",
+      "visibility": "private"
+    },
+    "evidenceLevel": "A",
+    "state": "draft",
+    "publicLevel": "private",
+    "sensitivity": "low",
+    "expiresAt": null
+  },
+  {
+    "id": "C005",
+    "type": "project",
+    "text": "第5条合成测试事实，用于验证审核、失效与公开范围。",
+    "source": {
+      "label": "合成开发者测试材料",
+      "visibility": "private"
+    },
+    "evidenceLevel": "A",
+    "state": "draft",
+    "publicLevel": "private",
+    "sensitivity": "low",
+    "expiresAt": null
+  }
+]

@@ -1,0 +1,26 @@
+[Unit]
+Description=PengManager BOT independent health probe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pengmanager-bot-health
+Group=pengmanager-bot-health
+WorkingDirectory=/opt/pengmanager-bot
+EnvironmentFile=/etc/pengmanager/bot-health.env
+LoadCredentialEncrypted=BOT_HEALTH_WEBHOOK_URL
+LoadCredentialEncrypted=BOT_HEALTH_WEBHOOK_TOKEN
+StateDirectory=pengmanager-bot-health
+StateDirectoryMode=0700
+ExecStart=/usr/bin/node /opt/pengmanager-bot/scripts/bot-health.mjs
+TimeoutStartSec=25
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

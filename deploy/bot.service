@@ -1,0 +1,38 @@
+[Unit]
+Description=PengManager owner BOT
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/pengmanager-bot /srv/pengmanager-bot-journal
+
+[Service]
+Type=simple
+User=pengmanager-bot
+Group=pengmanager-bot
+WorkingDirectory=/opt/pengmanager-bot
+Environment=BOT_MODE=real
+Environment=HOST=127.0.0.1
+Environment=PORT=4320
+Environment=BOT_CONFIG=/etc/pengmanager/bot.json
+Environment=BOT_DATA_DIR=/var/lib/pengmanager-bot
+Environment=BOT_JOURNAL_DIR=/srv/pengmanager-bot-journal
+LoadCredentialEncrypted=BOT_OWNER_PASSWORD_HASH
+LoadCredentialEncrypted=BOT_MODEL_KEY
+ExecStart=/usr/bin/node /opt/pengmanager-bot/scripts/bot-admin.mjs serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+UMask=0077
+StateDirectory=pengmanager-bot
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/pengmanager-bot /srv/pengmanager-bot-journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

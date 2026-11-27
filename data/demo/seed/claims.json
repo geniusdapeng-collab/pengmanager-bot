@@ -1,0 +1,16 @@
+[
+  {
+    "id": "C001",
+    "type": "project",
+    "text": "这条记录是随代码分发的合成演示事实。",
+    "source": {
+      "label": "本地合成示例",
+      "visibility": "private"
+    },
+    "evidenceLevel": "B",
+    "state": "draft",
+    "publicLevel": "private",
+    "sensitivity": "low",
+    "expiresAt": null
+  }
+]

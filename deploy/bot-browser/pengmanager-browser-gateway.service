@@ -1,0 +1,25 @@
+[Unit]
+Description=PengManager authenticated browser gateway
+Requires=pengmanager-browser-worker.service
+After=network-online.target pengmanager-browser-worker.service
+
+[Service]
+Type=simple
+User=pengmanager-browser-gateway
+Group=pengmanager-browser-rfb
+WorkingDirectory=/opt/pengmanager-bot
+EnvironmentFile=/etc/pengmanager/browser-gateway.env
+ExecStart=/usr/bin/node /opt/pengmanager-bot/deploy/bot-browser/gateway.mjs
+Restart=on-failure
+RestartSec=3
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

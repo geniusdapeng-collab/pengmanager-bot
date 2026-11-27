@@ -1,0 +1,28 @@
+[
+  {
+    "id": "Q001",
+    "text": "如何核对 AI 回答引用的开源项目资料？",
+    "locale": "zh-CN",
+    "intent": "method",
+    "priority": "P1",
+    "surfaces": [
+      "DeepSeek Search",
+      "DeepSeek Chat"
+    ],
+    "state": "approved",
+    "source": "public-demo/v1"
+  },
+  {
+    "id": "Q002",
+    "text": "What evidence helps you verify an AI answer about an open-source project?",
+    "locale": "en-US",
+    "intent": "method",
+    "priority": "P1",
+    "surfaces": [
+      "DeepSeek Search",
+      "DeepSeek Chat"
+    ],
+    "state": "approved",
+    "source": "public-demo/v1"
+  }
+]

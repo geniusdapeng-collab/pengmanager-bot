@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#f5f4ee">
+    <title>鹏经理 · 经营工作台</title>
+    <link rel="stylesheet" href="/bot/workbench.css">
+    <script type="module" src="/bot/workbench.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#workspace">跳到工作台</a>
+    <header class="top">
+      <div class="top-inner">
+        <a href="#home" class="brand" aria-label="鹏经理经营工作台首页">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>鹏经理 <small>经营工作台</small></span>
+        </a>
+        <div class="top-actions">
+          <span class="connection" id="connection" role="status">正在连接</span>
+          <button type="button" class="quiet icon-button" id="refresh" aria-label="刷新经营数据" title="刷新经营数据"><span aria-hidden="true">↻</span></button>
+        </div>
+      </div>
+    </header>
+    <nav class="primary-nav" aria-label="工作台导航">
+      <div class="nav-inner">
+        <a href="#home" aria-current="page">成果</a>
+        <a href="#mandates">委托</a>
+        <a href="#tasks">任务</a>
+        <a href="#browser">云浏览器</a>
+      </div>
+    </nav>
+    <main id="workspace" tabindex="-1">
+      <div id="global-message" class="message" role="status" hidden></div>
+      <div id="content" aria-busy="true">
+        <div class="loading">
+          <div class="loading-line"></div>
+          <div class="loading-line"></div>
+          <p>正在载入经营工作台…</p>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

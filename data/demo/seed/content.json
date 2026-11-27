@@ -1,0 +1,17 @@
+[
+  {
+    "id": "CT001",
+    "title": "从一个问题开始核对 AI 回答",
+    "contentType": "article",
+    "claimIds": [],
+    "body": "先记录要核对的问题和回答。逐条打开引用，检查来源中的实际表述。把判断依据、尚未查明的部分和复测时间记在同一条记录里。",
+    "status": "draft",
+    "version": 1,
+    "platforms": [
+      "GitHub"
+    ],
+    "owner": "Demo",
+    "opinion": true,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
+]

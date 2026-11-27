@@ -1,0 +1,134 @@
+[
+  {
+    "id": "Q001",
+    "text": "第1条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "entity",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q002",
+    "text": "第2条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "category",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q003",
+    "text": "第3条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "entity",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q004",
+    "text": "第4条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "category",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q005",
+    "text": "第5条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "entity",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q006",
+    "text": "第6条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "category",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q007",
+    "text": "第7条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "entity",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q008",
+    "text": "第8条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "category",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q009",
+    "text": "第9条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "entity",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q010",
+    "text": "第10条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "category",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q011",
+    "text": "第11条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "entity",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  },
+  {
+    "id": "Q012",
+    "text": "第12条合成观察问题，如何记录一次测试证据？",
+    "locale": "zh-CN",
+    "intent": "category",
+    "priority": "P0",
+    "surfaces": [
+      "fixture"
+    ],
+    "state": "active"
+  }
+]

@@ -1,0 +1,39 @@
+{
+  "name": "pengmanager-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "description": "鹏经理 BOT 版 · 可自托管的持续内容经营、独立审核与 GEO 工作台",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/bot/host.mjs",
+    "dev": "node --watch src/bot/host.mjs",
+    "admin": "node scripts/bot-admin.mjs",
+    "test": "node scripts/test-bot.mjs",
+    "test:bot": "node --test --test-concurrency=1 tests/bot*.test.mjs",
+    "test:inherited": "node scripts/test-inherited.mjs",
+    "scan:public": "node scripts/public-audit.mjs",
+    "browser:gateway": "node deploy/bot-browser/gateway.mjs",
+    "media:post": "tsx engines/video-edit/scripts/tools/edit-post.mts",
+    "approval:worker": "node scripts/ai-approval-worker.mjs",
+    "content:worker": "node scripts/content-ops-worker.mjs"
+  },
+  "devDependencies": {
+    "tsx": "4.23.12",
+    "vitest": "3.2.0",
+    "yaml": "2.9.0",
+    "zod": "4.6.5"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "sharp": "0.35.5",
+    "tokenizers": "0.23.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geniusdapeng-collab/pengmanager-bot.git"
+  }
+}

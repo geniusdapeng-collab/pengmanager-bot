@@ -1,0 +1,8 @@
+{
+  "name": "pengmanager-bot-browser-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "dependencies": { "ws": "8.23.0" }
+}
