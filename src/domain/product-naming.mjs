@@ -1,3 +1,5 @@
+import { INLINE_HTTP_URL, requirePublicUrl } from "./public-url.mjs";
+
 export const PRODUCT_NAMING_POLICY_VERSION = "generic-product-naming/v1";
 
 export const GENERIC_PRODUCT_NAMES = Object.freeze({
@@ -20,12 +22,14 @@ export const GENERIC_PRODUCT_NAMES = Object.freeze({
   visualEditingTool: "视觉编辑工具",
 });
 
+const productDocumentRoute = {
+  source: "product-document-route",
+  pattern: /(?:https?:\/\/)?(?:cnb\.cool\/workloom-ai|github\.com\/geniusdapeng-collab)[^\s)\]}>）】》」』，。；;]*/gi,
+  replacement: "公开产品资料",
+};
+
 const replacements = [
-  {
-    source: "product-document-route",
-    pattern: /(?:https?:\/\/)?(?:cnb\.cool\/workloom-ai|github\.com\/geniusdapeng-collab)[^\s)\]}>，。；;]*/gi,
-    replacement: "公开产品资料",
-  },
+  productDocumentRoute,
   { source: "agent-engineering-framework", pattern: /\bDeepSeek\s+(?:Agent\s+)?Harness\b/gi, replacement: "AI Agent 工程框架" },
   { source: "agent-execution-framework", pattern: /\bHarness\b/g, replacement: "Agent 执行框架" },
   { source: "model-service", pattern: /\bDeepSeek\b/gi, replacement: "大模型服务" },
@@ -82,6 +86,7 @@ const placeholderPattern = /(?:^|[^A-Za-z0-9])(?:[XＸ]{2,}|TBD|TODO)(?=$|[^A-Za
 export const PRODUCT_NAMING_PROMPT = [
   "HARD PRODUCT-NAMING RULE:",
   "Never publish a concrete product, company, repository, code name, internal product name, or brand name in article titles, summaries, body text, headings, lists, captions, alt text, visual labels, or user-facing metadata.",
+  "When citing an authorized external source, copy its URL verbatim. Apply generic naming to the surrounding prose.",
   `Replace each such name with the role-based generic Chinese industry term defined by ${PRODUCT_NAMING_POLICY_VERSION}.`,
   "For example: WorkLoom -> AI Agent 经营系统; Agent IM -> 企业智能协作平台; Andromeda/仙女座 -> 平台运营中枢; HyperReality -> AI 视频内容生产系统; WorkLoom Video Edit/Edit-AI -> 智能视频后期系统; GeoEvidence Studio -> AI 可见度证据系统; Panda Cineforge -> 多平台电商经营系统; Eagle -> 企业咨询经营系统; Tiger -> 交易纪律管理系统; 狐狸先生 -> 智能体交互实验系统; WorkLoom Eval -> 数字员工评测系统.",
   "Never use XX, XXXX, TBD, placeholders, masked names, or vague phrases such as “某产品” as a substitute. If no accurate generic name can be derived, stop and return a blocker instead of inventing one.",
@@ -98,19 +103,34 @@ function collectLeafStrings(value, path = "content", rows = []) {
   return rows;
 }
 
+function namingSegments(value) {
+  return value.split(INLINE_HTTP_URL).map((text, index) => {
+    if (index % 2 === 1 && !text.match(productDocumentRoute.pattern)) {
+      try {
+        requirePublicUrl(text, "citation", { allowHttp: true });
+        return { text, verbatim: true };
+      } catch (error) {
+        if (error.code !== "INVALID_PUBLIC_URL") throw error;
+      }
+    }
+    return { text, verbatim: false };
+  });
+}
+
 export function rewriteGenericProductNames(value) {
   if (typeof value !== "string") return { value, changed: false, replacements: [] };
-  let next = value;
-  const matched = [];
-  for (const rule of replacements) {
-    let changed = false;
-    next = next.replace(rule.pattern, () => {
-      changed = true;
-      return rule.replacement;
-    });
-    if (changed) matched.push(rule.source);
-  }
-  return { value: next, changed: next !== value, replacements: [...new Set(matched)] };
+  const matched = new Set();
+  const next = namingSegments(value).map(({ text, verbatim }) => {
+    if (verbatim) return text;
+    for (const rule of replacements) {
+      text = text.replace(rule.pattern, () => {
+        matched.add(rule.source);
+        return rule.replacement;
+      });
+    }
+    return text;
+  }).join("");
+  return { value: next, changed: next !== value, replacements: [...matched] };
 }
 
 export function normalizeGenericProductNames(value, { path = "content" } = {}) {
@@ -200,8 +220,9 @@ export function normalizeGeneratedTextContent(value) {
 export function genericProductNamingFindings(value, { location = "content" } = {}) {
   const findings = [];
   for (const leaf of collectLeafStrings(value, location)) {
+    const prose = namingSegments(leaf.value).map(part => part.verbatim ? " " : part.text).join("");
     for (const rule of replacements) {
-      const matches = leaf.value.match(rule.pattern) ?? [];
+      const matches = prose.match(rule.pattern) ?? [];
       for (const match of matches) {
         findings.push({
           severity: "blocker",
@@ -212,7 +233,7 @@ export function genericProductNamingFindings(value, { location = "content" } = {
         });
       }
     }
-    for (const match of leaf.value.match(placeholderPattern) ?? []) {
+    for (const match of prose.match(placeholderPattern) ?? []) {
       findings.push({
         severity: "blocker",
         code: "PRODUCT_NAME_PLACEHOLDER_FORBIDDEN",

@@ -75,7 +75,7 @@ class AdvancedModel {
       const retained = brief.mustKeep?.length ? `必须保留：${brief.mustKeep.join("；")}。` : "";
       const body = [`${paragraph(brief.topic, section.key, "先看真实问题")}${retained}`, paragraph(brief.topic, section.key, "再看工程取舍"), paragraph(brief.topic, section.key, "最后看交付")]
         .join("\n\n");
-      return { value: { title: section.title, body, paragraphs: body.split("\n\n"), claimIds: [] }, receipt: RECEIPT };
+      return { value: { title: section.title, body, paragraphs: body.split("\n\n"), claimIds: this.options.citeClaimIds ?? [] }, receipt: RECEIPT };
     } finally {
       this.activeDrafts--;
     }
@@ -319,8 +319,12 @@ test("model blocker triggers a bounded repair and a fresh final audit", async t 
 });
 
 test("an approved visual package can be reordered without overwriting the previous revision", async t => {
-  const model = new AdvancedModel();
+  const model = new AdvancedModel({ citeClaimIds: ["C003"] });
   const f = await fixture(t, model);
+  const releaseUrl = "https://github.com/google/guetzli/releases/tag/v1.0.1";
+  await f.store.mutate({ type: "fixture.public_release", actor: "fixture" }, state => {
+    state.claims.find(row => row.id === "C003").source = { label: "Guetzli release", url: releaseUrl, visibility: "public" };
+  });
   const claim = await new GeoOsService({ store: f.store }).approveClaim("C003", {
     approvedBy: "advanced fixture reviewer", publicLevel: "approved_public",
   });
@@ -328,7 +332,7 @@ test("an approved visual package can be reordered without overwriting the previo
     intent: "写一篇内容系统文章，并配两张可编辑图",
     explicitKind: "article_visual",
     claimIds: ["C003"],
-    mustKeep: [claim.source.url],
+    mustKeep: [`（${claim.source.url}）`],
     targetLength: { minCharacters: 500, maxCharacters: 1200 },
     enableVisuals: true,
   }, context());
@@ -351,7 +355,7 @@ test("article citations retain legacy URL sources and reject private or unbound 
   const f = await fixture(t, new AdvancedModel());
   const legacy = "https://nodejs.org/en/about";
   const restricted = "https://nodejs.org/private";
-  const unbound = "https://nodejs.org/other";
+  const unbound = "https://github.com/google/guetzli/releases/latest";
   await f.store.mutate({ type: "fixture.citation_sources", actor: "fixture" }, state => {
     const claim = state.claims.find(row => row.id === "C003");
     claim.source = legacy;

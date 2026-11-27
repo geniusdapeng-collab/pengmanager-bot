@@ -2,6 +2,8 @@ import { isIP } from "node:net";
 import { ApiError } from "./errors.mjs";
 
 const CREDENTIAL_PARAMETER = /token|password|secret|cookie|authorization|api[_-]?key|session|signature|credential/i;
+// The capture also lets prose transformations split around the exact citation bytes.
+export const INLINE_HTTP_URL = /(\bhttps?:\/\/[^\s)\]}>）】》」』，。；;]+)/giu;
 
 function credentialFragment(hash) {
   let decoded = hash.slice(1);
