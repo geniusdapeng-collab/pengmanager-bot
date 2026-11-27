@@ -1,5 +1,6 @@
 import { ApiError } from "./errors.mjs";
 import { hashObject } from "./hash.mjs";
+import { INLINE_HTTP_URL } from "./public-url.mjs";
 import { scanSensitiveText } from "./policy.mjs";
 import {
   genericProductNamingErrorCode,
@@ -234,7 +235,7 @@ export function deterministicArticleFindings(article, { minCharacters, maxCharac
       code: "UNSUPPORTED_FILLER", dimension: "expression", location: term, message: `出现缺少证据或过度套话的表达「${term}」。` });
   }
   const permitted = new Set(allowedUrls.map(value => String(value)));
-  for (const match of body.matchAll(/\bhttps?:\/\/[^\s)\]}>，。；;]+/giu)) {
+  for (const match of body.matchAll(INLINE_HTTP_URL)) {
     if (!permitted.has(match[0])) {
       findings.push({ severity: "blocker", code: "UNBOUND_URL", dimension: "facts", location: match.index,
         message: "正文包含没有进入 ResearchBundle 或 Claim 来源的链接。" });

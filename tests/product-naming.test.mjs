@@ -50,6 +50,18 @@ test("XX placeholders remain a hard blocker and are never accepted as generic na
   assert.ok(findings.every(finding => finding.severity === "blocker"));
 });
 
+test("naming preserves external citation addresses while rewriting prose and first-party document routes", () => {
+  const links = ["https://github.com/google/guetzli/releases/tag/v1.0.1", "https://platform.openai.com/docs/",
+    "https://www.kaggle.com/datasets", "https://nodejs.org/docs/DeepSeek"];
+  const internal = "https://github.com/geniusdapeng-collab/workloom-im";
+  const body = `GitHub（${links.join("），（")}）。OpenAI 的说明见 ${internal} 。`;
+  const expected = `代码托管平台（${links.join("），（")}）。大模型服务商 的说明见 公开产品资料 。`;
+  const result = normalizeGeneratedTextContent({ body });
+  assert.equal(result.value.body, expected);
+  assert.deepEqual(genericProductNamingFindings(result.value.body), []);
+  assert.ok(genericProductNamingFindings(body).some(row => row.message.includes(internal)));
+});
+
 test("content director normalizes outline and section text then blocks unresolved placeholders", () => {
   const brief = {
     claimIds: [],

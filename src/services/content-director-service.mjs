@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { ApiError } from "../domain/errors.mjs";
 import { hashObject } from "../domain/hash.mjs";
 import { requirePublicUrl } from "../domain/public-url.mjs";
+import { publicEditorialClaim } from "../domain/editorial.mjs";
 import { genericProductNamingFindings, genericProductNamingPolicy, normalizeGenericProductNames }
   from "../domain/product-naming.mjs";
 import { CONTENT_ARTIFACT_KINDS, resolveContentIntent } from "../domain/content-intent.mjs";
@@ -94,6 +95,18 @@ function claimRows(state, ids) {
   if (rows.some(row => !row)) fail(404, "CLAIM_NOT_FOUND", "内容任务引用了不存在的 Claim。");
   if (rows.some(row => row.state !== "approved")) fail(422, "CLAIM_NOT_APPROVED", "内容任务只能使用已批准 Claim。");
   return rows;
+}
+
+function articleCitationUrls(researchSources, claims, now) {
+  const urls = researchSources.map(source => source.url);
+  for (const claim of claims) {
+    if (typeof claim.source === "string") {
+      if (/^https?:\/\//i.test(claim.source)) urls.push(claim.source);
+    } else if (publicEditorialClaim(claim, { now })) {
+      urls.push(claim.source.url);
+    }
+  }
+  return urls;
 }
 
 function normalizeFindings(value) {
@@ -1522,11 +1535,8 @@ export class ContentDirectorService {
     let findings = [];
     let report = null;
     if (job.artifactKind === "article_visual") {
-      const allowedUrls = [
-        ...(job.result.research?.sources ?? []).map(row => row.url),
-        ...(job.input.claimIds ?? []).map(claimId => this.state().claims.find(claim => claim.id === claimId)?.source)
-          .filter(value => /^https?:\/\//i.test(String(value))),
-      ];
+      const allowedUrls = articleCitationUrls(job.result.research?.sources ?? [],
+        claimRows(this.state(), authorizedClaimIds), this.clock());
       const deterministicFindings = deterministicArticleFindings(article, {
         ...job.route.targetLength,
         allowedUrls,
@@ -2103,7 +2113,7 @@ export class ContentDirectorService {
     const assembledArtifact = await this.#writeArtifact(id, `article-${articleHash(article).slice(0, 12)}.md`, article.body, "text/markdown");
     await this.#finishStep(id, step, { output: { articleHash: articleHash(article), characters: article.body.replace(/\s+/g, "").length }, artifact: assembledArtifact });
 
-    const allowedUrls = [...research.sources.map(row => row.url), ...brief.claims.map(row => row.source).filter(value => /^https?:\/\//i.test(String(value)))];
+    const allowedUrls = articleCitationUrls(research.sources, claimRows(this.state(), brief.claimIds), this.clock());
     let deterministicFindings = deterministicArticleFindings(article, {
       ...brief.targetLength,
       allowedUrls,

@@ -17,7 +17,7 @@ const ALL_KINDS = Object.freeze([...MODEL_TASK_KINDS, ...DETERMINISTIC_KINDS, 'v
 const CLOSURE = Object.freeze([...new Set(['src/content-ops-worker/adapters.mjs', 'src/content-ops-worker/model.mjs',
   'src/content-ops-worker/worker.mjs', 'src/content-ops-worker/local-store.mjs', 'src/content-ops-worker/transport.mjs',
   'src/content-ops-worker/protocol.mjs', 'scripts/content-ops-worker.mjs', 'src/domain/content-ops-coverage.mjs',
-  'src/domain/product-naming.mjs',
+  'src/domain/product-naming.mjs', 'src/domain/public-url.mjs',
   'src/domain/hash.mjs', 'src/domain/strict-json.mjs', 'src/domain/errors.mjs',
   'src/model-routing/budget.mjs', 'src/model-routing/dispatcher.mjs', 'src/model-routing/errors.mjs',
   'src/model-routing/policy.mjs', 'src/model-routing/registry.mjs', 'src/model-routing/tokenizer.mjs',
