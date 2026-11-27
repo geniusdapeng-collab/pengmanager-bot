@@ -21,6 +21,10 @@ test('natural draft derives bounded cadence, delivery and private work mode with
   assert.equal(draft.workMode, 'research_only');
   assert.equal(draft.ambiguous, false);
   assert.equal(draft.notes.length, 2);
+  const spaced = parseMandateDraft('每天整理公告，交付时限为 3 天，先试 2 周。', today);
+  assert.equal(spaced.resultWindowMs, 3 * day);
+  assert.equal(spaced.expiryDate, '2026-12-11');
+  assert.equal(parseMandateDraft('2 天内 交付研究结论。', today).resultWindowMs, 2 * day);
   for (const field of ['budget', 'allowedActions', 'sources', 'presence', 'actorId']) assert.equal(Object.hasOwn(draft, field), false);
   assert.equal(parseMandateDraft('每隔两天跟进；七天内交第一份草稿，只起草。委托到期日为 2026年12月5日', today).expiryDate, '2026-12-05');
   assert.equal(parseMandateDraft('每隔两天跟进；七天内交第一份草稿，只起草。', today).intervalMs, 2 * day);
