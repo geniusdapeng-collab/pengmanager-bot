@@ -2,6 +2,7 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const AMOUNT = "([0-9]{1,3}|[零〇一二两三四五六七八九十]{1,3})";
 const UNIT = "(小时|天|日|周|星期)";
+const countedCadence = String.raw`每(?:隔)?\s*${AMOUNT}\s*${UNIT}`;
 const chineseDigits = "零一二三四五六七八九";
 const explicitStop = /^(?:停发|停止发布|停止外发)[。.!！]?$/u;
 
@@ -49,20 +50,20 @@ export function parseMandateDraft(raw, now = new Date()) {
   if (/(?:每天|每日)/u.test(objective)) cadence.push(DAY);
   if (/(?:每周|每星期)/u.test(objective)) cadence.push(7 * DAY);
   if (/(?:按事件|事件触发|按需触发)/u.test(objective)) cadence.push(null);
-  if (/(?:工作日|每月|每季度|(?:每天|每日)\s*(?:上午|中午|下午|晚上|早上|[\d一二两三四五六七八九十]{1,3}\s*点)|每周\s*[一二三四五六日天](?!次)|(?:每天|每日|每周)\s*(?:最多|不超过|上限))/u.test(objective)) cadence.push(undefined);
-  for (const match of objective.matchAll(new RegExp(`(?:每天|每日|每周|每星期)\\s*${AMOUNT}次`, "gu"))) {
+  if (/(?:工作日|每月|每季度|(?:每天|每日)\s*(?:上午|中午|下午|晚上|早上|[\d一二两三四五六七八九十]{1,3}\s*点)|每周\s*[一二三四五六日天](?!\s*次)|(?:每天|每日|每周)\s*(?:最多|不超过|上限))/u.test(objective)) cadence.push(undefined);
+  for (const match of objective.matchAll(new RegExp(String.raw`(?:每天|每日|每周|每星期)\s*${AMOUNT}\s*次`, "gu"))) {
     if (quantity(match[1]) !== 1) cadence.push(undefined);
   }
-  for (const match of objective.matchAll(new RegExp(`每(?:隔)?${AMOUNT}${UNIT}`, "gu"))) {
+  for (const match of objective.matchAll(new RegExp(countedCadence, "gu"))) {
     cadence.push(interval(match[1], match[2]));
   }
-  if (new RegExp(`(?:不要|不用|并非|不按)[^。;；，,]{0,5}(?:每天|每日|每周|每星期|事件触发|每(?:隔)?${AMOUNT}${UNIT})`, "u").test(objective)) cadence.push(undefined);
-  const delivery = [...objective.matchAll(new RegExp(`(?:(?:接单后|交付时限\s*(?:为|是|:)?|交付期限\s*(?:为|是|:)?)\s*${AMOUNT}\s*${UNIT}(?:内|前)?|${AMOUNT}\s*${UNIT}(?:之?内|之?前)\s*(?:交|提交|给我|给出|完成))`, "gu"))]
+  if (new RegExp(`(?:不要|不用|并非|不按)[^。;；，,]{0,5}(?:每天|每日|每周|每星期|事件触发|${countedCadence})`, "u").test(objective)) cadence.push(undefined);
+  const delivery = [...objective.matchAll(new RegExp(String.raw`(?:(?:接单后|交付时限\s*(?:为|是|:)?|交付期限\s*(?:为|是|:)?)\s*${AMOUNT}\s*${UNIT}(?:内|前)?|${AMOUNT}\s*${UNIT}(?:之?内|之?前)\s*(?:交|提交|给我|给出|完成))`, "gu"))]
     .map(match => interval(match[1] ?? match[3], match[2] ?? match[4]));
   if (/(?:接单后半[天日]|半[天日]内\s*(?:交|提交|给我|给出|完成))/u.test(objective)) delivery.push(12 * HOUR);
   const expiry = [...objective.matchAll(/(?:委托到期(?:日)?|委托至|到期日|截止日期|有效至)\s*(?:为|是|到|:|至)?\s*(\d{4}-\d{1,2}-\d{1,2}|\d{4}年\d{1,2}月\d{1,2}日?)/gu)]
     .map(match => localDate(match[1].replace(/[年月]/gu, "-").replace(/日$/u, "")));
-  for (const match of objective.matchAll(new RegExp(`(?:委托期限|委托有效期|委托运行|运行|先试)\s*${AMOUNT}\s*(天|日|周|星期)`, "gu"))) {
+  for (const match of objective.matchAll(new RegExp(String.raw`(?:委托期限|委托有效期|委托运行|运行|先试)\s*${AMOUNT}\s*(天|日|周|星期)`, "gu"))) {
     const duration = interval(match[1], match[2]);
     const date = new Date(now);
     if (duration) date.setDate(date.getDate() + duration / DAY);

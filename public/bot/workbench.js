@@ -47,6 +47,8 @@ const errorMessages = {
 };
 const model = { session: null, dashboard: null, browser: null, view: null, viewer: null, details: new Map() };
 let refreshPromise;
+let editedForm;
+content.addEventListener("input", event => { editedForm = event.target.form; });
 
 const list = (value) => Array.isArray(value) ? value : [];
 const label = (value) => typeof value === "number" || typeof value === "string" ? String(value) : "";
@@ -170,6 +172,8 @@ async function http(path, body, { idempotencyKey, version } = {}) {
       model.session = null;
       model.dashboard = null;
       model.browser = null;
+      model.details.clear();
+      showConnection("等待登录", "error");
       closeLocalViewer();
       render();
     }
@@ -198,7 +202,8 @@ function viewName() {
   return views.has(hash) ? hash : "home";
 }
 
-function refresh() {
+function refresh({ preserveEdits = false } = {}) {
+  const canRender = () => !model.viewer && !(preserveEdits && editedForm?.isConnected);
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     refreshButton.disabled = true;
@@ -208,7 +213,7 @@ function refresh() {
       model.dashboard = await http("/dashboard");
       showConnection(dataTypes[model.dashboard.dataMode] || "已连接", "ready");
       if (viewName() === "browser") await loadBrowser();
-      if (!model.viewer) render();
+      if (canRender()) render();
       if (model.viewer && !activeLease(model.viewer.leaseId)) {
         closeLocalViewer();
         render();
@@ -217,7 +222,7 @@ function refresh() {
     } catch (error) {
       showConnection(error.status === 401 ? "等待登录" : "连接异常", "error");
       showMessage(error.message, error.status !== 401);
-      if (!model.viewer) render();
+      if (canRender()) render();
     } finally {
       content.setAttribute("aria-busy", "false");
       refreshButton.disabled = false;
@@ -285,6 +290,7 @@ function showHome(data) {
           channelDetails(list(data.channels)),
           costDetails(list(data.costs)))))),
     weeklyReports(data),
+    renderDetail("周报依据"),
   ].filter(Boolean);
 }
 
@@ -485,8 +491,10 @@ function mandateForm(data) {
     const draftMessages = [...draft.notes, ...(referredSources.length ?
       [`目标中提到了已登记信源 ${referredSources.map(({ name }) => name).join("、")}。请核对后手动勾选。`] : [])];
     draftNotes.replaceChildren(node("p", { class: "message form-message", role: "status" }, draft.ambiguous
-      ? "草案已填入可确定项。请核对待定项后预览。" : "草案已填入可确定项。请核对频次、时限、信源和工作范围。"),
-    draftMessages.length > 0 && node("ul", { class: "description" }, draftMessages.map(note => node("li", {}, note))));
+      ? "草案已填入可确定项。请核对待定项后预览。" : "草案已填入可确定项。请核对频次、时限、信源和工作范围。"));
+    if (draftMessages.length) {
+      draftNotes.append(node("ul", { class: "description" }, draftMessages.map(note => node("li", {}, note))));
+    }
     if (!draft.ambiguous && !previewButton.disabled) form.requestSubmit(previewButton);
   });
   const form = node("form", { class: "form" },
@@ -622,7 +630,13 @@ function showMandates(data) {
 
 async function openDetail(path, title, id) {
   const value = await http(path);
-  model.details.set(title, { value, id });
+  if (title === "周报依据") {
+    const selected = list(value.reports).find(row => row.id === id);
+    if (!selected) throw localError("未找到所选周期的周报，请刷新后重试。");
+    model.details.set(title, { value: selected, id });
+  } else {
+    model.details.set(title, { value, id });
+  }
   render();
   document.querySelector("#active-detail")?.scrollIntoView({ block: "nearest" });
 }
@@ -953,6 +967,7 @@ function showBrowser() {
 function render() {
   const view = viewName();
   model.view = view;
+  document.querySelector("#logout").hidden = !model.session;
   for (const anchor of document.querySelectorAll(".primary-nav a")) {
     if (anchor.hash === `#${view}`) anchor.setAttribute("aria-current", "page");
     else anchor.removeAttribute("aria-current");
@@ -998,11 +1013,12 @@ window.addEventListener("message", (event) => {
   }
 });
 refreshButton.addEventListener("click", () => {
+  if (editedForm?.isConnected && !window.confirm("刷新会清除当前未提交的表单内容。继续刷新吗？")) return;
   showMessage("");
   refresh();
 });
 window.addEventListener("focus", () => {
-  if (!model.viewer && document.activeElement === document.body) refresh();
+  if (!model.viewer && document.activeElement === document.body) refresh({ preserveEdits: true });
 });
 window.setInterval(() => {
   if (model.viewer && viewName() === "browser") refresh();
