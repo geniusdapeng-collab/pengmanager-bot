@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { ApiError } from "../domain/errors.mjs";
 import { hashObject } from "../domain/hash.mjs";
 import { requirePublicUrl } from "../domain/public-url.mjs";
-import { publicEditorialClaim } from "../domain/editorial.mjs";
+import { publicEditorialClaim, reviewedClaimSource } from "../domain/editorial.mjs";
 import { genericProductNamingFindings, genericProductNamingPolicy, normalizeGenericProductNames }
   from "../domain/product-naming.mjs";
 import { CONTENT_ARTIFACT_KINDS, resolveContentIntent } from "../domain/content-intent.mjs";
@@ -1211,7 +1211,9 @@ export class ContentDirectorService {
     let approval;
     if (this.aiApproval) {
       const visuals = job.result.visuals ?? [];
-      const sources = claimRows(this.state(), job.input.claimIds ?? []);
+      const state = this.state();
+      const sources = claimRows(state, job.input.claimIds ?? []);
+      const reviewedSources = sources.map(claim => reviewedClaimSource(state, claim, this.clock(), Math.floor(24_000 / sources.length))).filter(Boolean);
       const pngs = [];
       for (const visual of visuals) {
         const png = visual.artifacts.find(item => item.mime === "image/png");
@@ -1222,6 +1224,7 @@ export class ContentDirectorService {
       }
       const reviewInput = { kind: "content-director-package", subjectId: id, snapshotHash: job.result.contentHash,
         evidence: { jobId: id, artifactKind: job.artifactKind, result: job.result, authorizedClaims: sources,
+          ...(reviewedSources.length ? { reviewedClaimSources: reviewedSources } : {}),
           exactFinalReports: job.reports.filter(report => report.phase === "quality.final" && report.contentHash === job.result.contentHash) },
         criteria: {
           completeness: "核对实际可交付内容、完整要求和结果类型；如结果是视频制作计划，只批准制作计划，不能把计划当成已经交付的视频。",
@@ -1821,7 +1824,10 @@ export class ContentDirectorService {
       mustKeep: job.input.mustKeep,
       mustAvoid: job.input.mustAvoid,
       claimIds: job.input.claimIds,
-      claims: claims.map(claim => ({ id: claim.id, text: claim.text, type: claim.type, source: claim.source })),
+      claims: claims.map(claim => {
+        const source = reviewedClaimSource(state, claim, this.clock(), Math.floor(24_000 / claims.length));
+        return { id: claim.id, text: claim.text, type: claim.type, source: claim.source, ...(source ? { reviewedSource: source } : {}) };
+      }),
       sourceMaterials: materials,
     };
   }

@@ -9,6 +9,7 @@ const ASSETS = {
   '/bot/': ['index.html', 'text/html; charset=utf-8'],
   '/bot/workbench.css': ['workbench.css', 'text/css; charset=utf-8'],
   '/bot/workbench.js': ['workbench.js', 'text/javascript; charset=utf-8'],
+  '/bot/dashboard.js': ['dashboard.js', 'text/javascript; charset=utf-8'],
   '/bot/mandate-draft.js': ['mandate-draft.js', 'text/javascript; charset=utf-8'],
 };
 const BROWSER_EMPTY = Object.freeze({ configured: false, stopped: false, targets: [], leases: [], audit: [] });

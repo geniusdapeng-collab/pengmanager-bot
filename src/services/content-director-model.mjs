@@ -65,9 +65,12 @@ export class ContentDirectorModel {
   }
 
   async draftSection(input) {
+    const guidance = input.brief?.claims?.some(claim => claim.reviewedSource)
+      ? " Use the exact reviewed source text for historical facts. Clearly label suggested acceptance checks as recommendations, using ordinary supported workflows and representative data. Do not invent implementation details, steps to trigger a past failure, or results of tests that were never run."
+      : "";
     return this.#json(
       "content.section",
-      "Write one complete article section from the frozen outline. Return {title,body,paragraphs:[string],claimIds:[string],visualRequest:string|null}. body must contain at least two substantive paragraphs. Preserve the author thesis, use only authorized claims and research, do not repeat earlier sections, and do not add unsupported facts, experiences or numbers. Write natural professional Chinese unless the brief requests another language.",
+      "Write one complete article section from the frozen outline. Return {title,body,paragraphs:[string],claimIds:[string],visualRequest:string|null}. body must contain at least two substantive paragraphs. Preserve the author thesis, use only authorized claims and research, do not repeat earlier sections, and do not add unsupported facts, experiences or numbers. Write natural professional Chinese unless the brief requests another language." + guidance,
       input,
     );
   }

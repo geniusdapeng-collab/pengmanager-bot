@@ -1,5 +1,5 @@
 import { ApiError, PolicyError } from "./errors.mjs";
-import { hashObject } from "./hash.mjs";
+import { hashObject, hashText } from "./hash.mjs";
 import { isClaimPubliclyExportable, scanSensitiveText, validateContentForApproval } from "./policy.mjs";
 import { requirePublicUrl } from "./public-url.mjs";
 import { validateCandidateForReview } from "./content-ops-quality.mjs";
@@ -314,6 +314,19 @@ export function validateEditorialVariant(state, content, account, { now = new Da
   if (requireApproval && content.approval?.snapshotHash !== content.snapshotHash) {
     throw new PolicyError("EDITORIAL_APPROVAL_REQUIRED", "渠道版本缺少适用的精确快照审批。");
   }
+}
+
+export function reviewedClaimSource(state, claim, now = new Date(), maxCharacters = Infinity) {
+  if (!publicEditorialClaim(claim, { now })) return null;
+  const source = state.editorialClaimSourceExcerpts?.find(row => row.claimId === claim.id);
+  if (!source || typeof source.excerpt !== "string" || !source.excerpt.length ||
+      source.claimHash !== claimEditorialFingerprint(claim) || claim.aiReview?.decision !== "approve" ||
+      claim.aiReview.actor !== "ai-reviewer" || !/^[a-f0-9]{64}$/u.test(source.reviewHash ?? "") ||
+      source.reviewHash !== claim.aiReview.evidenceHash || hashText(source.excerpt) !== source.sha256) return null;
+  const excerpt = source.excerpt.slice(0, maxCharacters);
+  return { claimId: claim.id, registeredClaimUrl: claim.source.url, excerpt, sha256: source.sha256,
+    ...(excerpt.length < source.excerpt.length ? { truncated: true, originalCharacters: source.excerpt.length } : {}),
+    claimSourceReview: { hash: source.reviewHash, reviewedAt: claim.aiReview.reviewedAt } };
 }
 
 export function publicEditorialClaim(claim, { now = new Date() } = {}) {
