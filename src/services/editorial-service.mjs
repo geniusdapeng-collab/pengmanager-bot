@@ -1477,17 +1477,20 @@ export class EditorialService {
   async verifyRelease(id, input, ctx) {
     editorialInput(input, ["confirm"]);
     if (input.confirm !== true) throw new ApiError(400, "READBACK_CONFIRMATION_REQUIRED", "必须明确请求真实官网回读。");
-    const result = await this.#write(`release_verified:${id}`, input, ctx, async (state, { actor, ifMatch, now, payload }) => {
+    const currentRelease = (state, ifMatch, now) => {
       const row = record(state.websiteReleases, id, "RELEASE_NOT_FOUND"); assertMatch(row, ifMatch);
       if (row.status !== "live_unverified") throw new ApiError(409, "INVALID_RELEASE_TRANSITION", "只有已激活且未验证的修订可入账。");
       const route = state.websiteRoutes.find(item => item.activeReleaseId === id);
       if (!route) throw new PolicyError("RELEASE_NOT_CURRENT", "修订已不是该正式 URL 的当前版本。");
       this.#validatePublicCandidate(state, row, { now, checkLive: true });
-      if (typeof this.verifyReadback !== "function") throw new ApiError(503, "WEBSITE_READBACK_UNAVAILABLE", "真实官网回读校验器尚未配置。");
-      const expected = this.#publicDto(state, row);
-      const proof = await this.verifyReadback(structuredClone(expected));
-      const verifiedNow = this.clock();
-      this.#validatePublicCandidate(state, row, { now: verifiedNow, checkLive: true });
+      return row;
+    };
+    const result = await this.#write(`release_verified:${id}`, input, ctx, (state, { actor, ifMatch, now, payload, review }) => {
+      const row = currentRelease(state, ifMatch, now);
+      const { expected, proof } = review;
+      if (this.#publicDto(state, row).etag !== expected.etag) {
+        throw new PolicyError("WEBSITE_READBACK_MISMATCH", "官网页面、正文快照或媒体字节没有通过真实回读。");
+      }
       const assets = [...new Map(expected.assets.map(asset => [`${asset.assetId}:${asset.sha256}`, { assetId: asset.assetId, sha256: asset.sha256 }])).values()]
         .sort((a, b) => a.assetId.localeCompare(b.assetId));
       if (!proof || proof.releaseId !== id || proof.snapshotHash !== row.snapshotHash || proof.canonicalUrl !== expected.canonicalUrl ||
@@ -1495,16 +1498,22 @@ export class EditorialService {
           hashObject([...proof.assetHashes].sort((a, b) => String(a.assetId).localeCompare(String(b.assetId)))) !== hashObject(assets)) {
         throw new PolicyError("WEBSITE_READBACK_MISMATCH", "官网页面、正文快照或媒体字节没有通过真实回读。");
       }
-      const verifiedAt = timestamp(proof.verifiedAt, "verifiedAt", verifiedNow);
+      const verifiedAt = timestamp(proof.verifiedAt, "verifiedAt", now);
       if (new Date(verifiedAt).getTime() < new Date(row.activationAt).getTime()) throw new ApiError(400, "READBACK_BEFORE_ACTIVATION", "回读时间不能早于公开激活。");
       row.receipt = { releaseId: id, canonicalUrl: expected.canonicalUrl, snapshotHash: row.snapshotHash,
         dataMode: "real", verificationMethod: "server_readback", publishedAt: row.activationAt,
         verifiedAt, verifiedBy: this.aiApproval ? PUBLICATION_SYSTEM_ACTOR : actor, assetHashes: assets };
-      row.receipt.receiptHash = hashObject(row.receipt); row.status = "published"; row.revision += 1; row.updatedAt = verifiedNow.toISOString();
+      row.receipt.receiptHash = hashObject(row.receipt); row.status = "published"; row.revision += 1; row.updatedAt = now.toISOString();
       const content = record(state.content, row.contentId, "CONTENT_NOT_FOUND");
-      content.status = "published"; content.version += 1; content.websiteReleaseId = id; content.updatedAt = verifiedNow.toISOString();
+      content.status = "published"; content.version += 1; content.websiteReleaseId = id; content.updatedAt = now.toISOString();
       payload.releaseId = id; payload.receiptHash = row.receipt.receiptHash; return entity(row);
-    }, this.aiApproval ? async () => ({ effectActor: PUBLICATION_SYSTEM_ACTOR }) : null);
+    }, async (state, { ifMatch, now }) => {
+      const row = currentRelease(state, ifMatch, now);
+      if (typeof this.verifyReadback !== "function") throw new ApiError(503, "WEBSITE_READBACK_UNAVAILABLE", "真实官网回读校验器尚未配置。");
+      const expected = this.#publicDto(state, row);
+      const proof = await this.verifyReadback(structuredClone(expected));
+      return { expected, proof, effectActor: this.aiApproval ? PUBLICATION_SYSTEM_ACTOR : undefined };
+    });
     const finalBackup = await this.geoService?.backupFinalContent(this.getVariant(result.contentId));
     return finalBackup ? { ...result, finalBackup } : result;
   }
