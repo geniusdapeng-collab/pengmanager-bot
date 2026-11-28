@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { createInterface } from 'node:readline';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { browserTaskAuthorizes, configuredBrowserTargets, deriveNativeCapability, writeBrowserAssignment } from '../src/bot/admin.mjs';
@@ -81,24 +81,26 @@ test('the CLI takes password from stdin, launches the real fixture host and read
   assert.equal(hashed.status, 0, hashed.stderr);
   assert.match(hashed.stdout, /^scrypt-sha256\$/u);
   const child = spawn(process.execPath, [script, 'demo', '--port', String(port), '--data-dir', directory],
-    { cwd: root, env, stdio: ['ignore', 'ignore', 'pipe'] });
+    { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const stopped = once(child, 'close');
   t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await stopped;
   });
-  let healthy = false;
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (child.exitCode !== null) break;
-    try {
-      const response = await fetch(origin + '/bot/healthz', { signal: AbortSignal.timeout(300), redirect: 'error' });
-      if (response.ok) { healthy = true; break; }
-    } catch (error) {
-      if (!['TypeError', 'TimeoutError', 'AbortError'].includes(error.name)) throw error;
+  const startupDeadline = AbortSignal.timeout(10_000);
+  const lines = createInterface({ input: child.stdout, signal: startupDeadline });
+  let listening = false;
+  for await (const line of lines) {
+    if (line.endsWith(' · ' + origin + '/bot/')) {
+      listening = true;
+      break;
     }
-    await delay(100);
   }
-  assert.equal(healthy, true);
+  startupDeadline.throwIfAborted();
+  assert.ok(listening, `Fixture CLI closed stdout before listening (exit ${child.exitCode}, signal ${child.signalCode}).`);
+  const health = await fetch(origin + '/bot/healthz', { signal: AbortSignal.timeout(1000), redirect: 'error' });
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { ok: true, service: 'pengmanager-bot' });
   const fixture = JSON.parse(readFileSync(join(directory, 'local-login.json'), 'utf8'));
   const dashboard = spawnSync(process.execPath, [script, 'api', '--origin', origin, '--path', '/dashboard'],
     { cwd: root, env, input: fixture.password, encoding: 'utf8' });
