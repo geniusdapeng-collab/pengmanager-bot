@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { digest, privateDirectory, putRecord, readRecord } from "./files.mjs";
-import { fail, hash } from "./core-store.mjs";
+import { BotError, fail, hash } from "./core-store.mjs";
+import { ModelAdmissionError } from "../model-routing/errors.mjs";
 import { TEXT_PRIMARY_MODEL } from "../model-routing/registry.mjs";
 
 const MAX_PROVIDER_BYTES = 3_000_000;
@@ -76,8 +77,14 @@ export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl 
       // A tariff change conflicts with an existing request reservation. It
       // cannot mint a new dispatch key for the same provider operation.
       const requestKey = hash([step.id, dest.href, digest(options.body)]);
-      const cost = core.reserveCost({ id: step.id, epoch: step.epoch, requestKey, currency: pricing.currency,
-        reservedMinor: reserve, provider: dest.origin, requestHash: tariffHash }, auth);
+      let cost;
+      try {
+        cost = core.reserveCost({ id: step.id, epoch: step.epoch, requestKey, currency: pricing.currency,
+          reservedMinor: reserve, provider: dest.origin, requestHash: tariffHash }, auth);
+      } catch (error) {
+        if (error instanceof BotError && error.code === "BUDGET_EXCEEDED") throw new ModelAdmissionError(error);
+        throw error;
+      }
       const saved = readRecord(join(receipts, cost.id + ".json"));
       const restore = row => {
         if (row.costId !== cost.id || row.requestKey !== requestKey || row.responseHash !== digest(row.body) ||
