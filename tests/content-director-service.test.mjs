@@ -240,7 +240,11 @@ test("approved article materializes as an immutable editorial edition", async t 
   assert.equal(f.editorial.getEdition(materialized.edition.id).snapshotHash, materialized.edition.snapshotHash);
 });
 
-test("a private native retry revises only approved paragraphs on the same frozen job and independently signs the new bytes", async t => {
+for (const mode of ["bounded repair", "compact continuation", "incomplete compact continuation"]) {
+  test(`a private managed article preserves its original bytes and reviews during ${mode}`, t => verifyRevision(t, mode));
+}
+
+async function verifyRevision(t, mode) {
   const decisions = [];
   const aiApproval = { async review(request) {
     decisions.push(request);
@@ -289,12 +293,28 @@ test("a private native retry revises only approved paragraphs on the same frozen
   };
   model.applyBoundedRevision = async ({ article, plan }) => {
     calls.push("edit");
+    if (mode !== "bounded repair") throw new ApiError(502, "MODEL_OUTPUT_TRUNCATED", "isolated known truncated response");
     const edits = plan.paragraphs.map(({ sectionKey, paragraph }) => {
       const row = article.sections.find(section => section.key === sectionKey);
       const old = row.paragraphs[paragraph - 1];
       return { sectionKey, paragraph, text: plan.summary ? old.slice(0, -1) : old.slice(0, 35) };
     });
     return result({ edits, ...(plan.summary ? { summary: "Paperbird 历史修订的来源与限制。" } : {}) });
+  };
+  model.editRevisionBatch = async input => {
+    assert.equal(Object.hasOwn(input, "article"), false);
+    assert.equal(input.entries.length, 1);
+    if (input.privateSummaryScope) {
+      calls.push("summary");
+      assert.ok(input.entries[0].text.includes("某历史"));
+      return result({ texts: ["Paperbird 历史修订的来源与限制。"] });
+    }
+    const [entry] = input.entries;
+    assert.equal(entry.paragraph, 2);
+    assert.ok(entry.targetCharacters < entry.text.length);
+    calls.push(entry.sectionKey);
+    if (mode === "incomplete compact continuation") throw new ApiError(502, "MODEL_OUTPUT_TRUNCATED", "second fixture failure");
+    return result({ texts: [entry.text.slice(0, Math.max(12, entry.targetCharacters - 2))] });
   };
   const adapter = createNativeBotAdapter({ app: { ...f, contentDirector: f.director } });
   const request = { taskId: "synthetic-private-trial", privateDraft: true, opportunity: { title: "Paperbird 历史资料精读", locale: "zh-CN" },
@@ -309,9 +329,37 @@ test("a private native retry revises only approved paragraphs on the same frozen
   const publicRetry = await adapter.prepareArticle({ ...request, privateDraft: false, jobId: original.id });
   assert.equal(publicRetry.code, "NATIVE_ARTICLE_NOT_APPROVED");
   assert.deepEqual(calls, []);
+  if (mode !== "bounded repair") {
+    await assert.rejects(adapter.prepareArticle({ ...request, jobId: original.id }), { code: "MODEL_OUTPUT_TRUNCATED" });
+    const failed = await f.director.getJob(original.id);
+    assert.equal(failed.currentStep, "article.repair");
+    const failure = failed.steps.find(s => s.error?.code === "MODEL_OUTPUT_TRUNCATED");
+    assert.ok(failure);
+    const originalControl = { ...context(), actor: "bot-native-preparation", ifMatch: failed.etag };
+    await assert.rejects(f.director.startJob(original.id, originalControl), { code: "ARTICLE_REVISION_UNAVAILABLE" });
+    await f.director.startJob(original.id, originalControl, { resumeTruncatedRevision: true });
+    await assert.rejects(f.director.processJob(original.id), { code: "MANAGED_JOB_LEASE_REQUIRED" });
+    if (mode === "incomplete compact continuation") {
+      await assert.rejects(f.director.processJob(original.id, { managedExecution: true }), { code: "MODEL_OUTPUT_TRUNCATED" });
+      const incomplete = await f.director.getJob(original.id);
+      assert.equal(incomplete.resultHash, original.resultHash);
+      assert.equal(incomplete.review, null);
+      assert.deepEqual(incomplete.steps.find(s => s.id === failure.id), failure);
+      assert.ok(incomplete.steps.some(s => s.key.includes(":batch:") && s.status === "succeeded" && s.receipt?.responseId));
+      await assert.rejects(f.director.startJob(original.id, { ...originalControl, ifMatch: incomplete.etag }, { resumeTruncatedRevision: true }),
+        { code: "ARTICLE_REVISION_UNAVAILABLE" });
+      assert.deepEqual(calls, ["scope", "edit", "summary", "section0"]);
+      return;
+    }
+    const finished = await f.director.processJob(original.id, { managedExecution: true });
+    assert.deepEqual(finished.steps.find(s => s.id === failure.id), failure);
+    const batches = finished.steps.filter(s => s.key.includes(":batch:"));
+    assert.ok(batches.every(s => s.status === "succeeded" && s.receipt.responseId && s.output.scopeId && s.output.batch && s.artifact.sha256));
+    assert.deepEqual(calls, ["scope", "edit", "summary", ...sections.map(s => s.key), "review", "review"]);
+  }
   const second = await adapter.prepareArticle({ ...request, jobId: original.id });
   assert.equal(second.state, "succeeded");
-  assert.deepEqual(calls, ["scope", "edit", "edit", "review", "review"]);
+  if (mode === "bounded repair") assert.deepEqual(calls, ["scope", "edit", "edit", "review", "review"]);
   const revised = await f.director.getJob(original.id);
   assert.equal(revised.status, "approved");
   assert.equal(revised.result.boundedRevision.parentArtifactSha256, original.resultRef.sha256);
@@ -331,4 +379,4 @@ test("a private native retry revises only approved paragraphs on the same frozen
   calls.length = 0;
   assert.deepEqual(await adapter.prepareArticle({ ...request, jobId: original.id }), second);
   assert.deepEqual(calls, []);
-});
+}

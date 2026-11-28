@@ -352,7 +352,7 @@ export function createNativeBotAdapter({ app, mode = 'real', loadIllustration, a
     return current;
   }
 
-  async function prepareArticle({ taskId, opportunity, claimIds, jobId, onJob, reviewCall, privateDraft = false, runModel = work => work() }) {
+  async function prepareArticle({ taskId, opportunity, claimIds, jobId, onJob, reviewCall, privateDraft = false, truncatedRevisionRetry, runModel = work => work() }) {
     if (!director.aiApproval) return blocked('AI_APPROVAL_WORKER_REQUIRED');
     const validClaims = authorizedClaims(app, claimIds, now());
     if (validClaims.length !== new Set(claimIds).size || !validClaims.length) return blocked('PUBLIC_CLAIM_REQUIRED');
@@ -367,12 +367,25 @@ export function createNativeBotAdapter({ app, mode = 'real', loadIllustration, a
     }
     await onJob?.(job.id);
     if (job.pauseRequested) return blocked('NATIVE_JOB_PAUSED', { jobId: job.id });
+    if (truncatedRevisionRetry) {
+      if (!privateDraft || !jobId || job.id !== truncatedRevisionRetry.jobId || !job.managedExecution) {
+        return blocked('NATIVE_DRAFT_CONTINUATION_CHANGED', { jobId: job.id });
+      }
+      if (job.status === 'failed') {
+        if (job.error?.code !== 'MODEL_OUTPUT_TRUNCATED' || job.resultRef?.sha256 !== truncatedRevisionRetry.sourceSha256 ||
+            !job.steps?.some(s => s.id === truncatedRevisionRetry.scopeStepId && s.kind === 'repair.scope' && s.status === 'succeeded')) {
+          return blocked('NATIVE_DRAFT_CONTINUATION_CHANGED', { jobId: job.id });
+        }
+        job = await director.startJob(job.id, ctx(productionActor, [taskId, job.id, truncatedRevisionRetry.costId, 'continue-truncated-revision'], job),
+          { resumeTruncatedRevision: true });
+      }
+    }
     // Re-enter only a known pre-publication editorial failure on the same managed job.
     // Previously successful editorial steps and paid requests are read through their original keys.
     if (job.managedExecution && job.status === 'failed' && job.error?.code === 'REPAIR_SCOPE_REQUIRED') {
       job = await director.startJob(job.id, ctx(productionActor, [taskId, job.id, 'resume-scoped-repair'], job));
     }
-    if (privateDraft && job.status === 'blocked' && privateArticleRevisionScope(job)) {
+    if (privateDraft && !truncatedRevisionRetry && job.status === 'blocked' && privateArticleRevisionScope(job)) {
       job = await director.startJob(job.id, ctx(productionActor, [taskId, job.id, job.resultRef.sha256, 'revise-private-article'], job),
         { repairBlockedArticle: true });
     }

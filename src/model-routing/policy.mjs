@@ -4,6 +4,14 @@ import { modelError } from "./errors.mjs";
 const THINKING_HIGH = Object.freeze({ type: "enabled", effort: "high" });
 const THINKING_LOW = Object.freeze({ type: "enabled", effort: "low" });
 const THINKING_DISABLED = Object.freeze({ type: "disabled" });
+const CONTENT_AUDIT = Object.freeze({
+  type: "reasoning_review",
+  thinking: THINKING_HIGH,
+  responseFormat: "json_object",
+  outputBudget: "maximum",
+  generationReviewGroup: "content.publish",
+  sameModelAs: "text.adapt",
+});
 
 const SCENES = Object.freeze({
   "approval.decision": Object.freeze({
@@ -70,14 +78,16 @@ const SCENES = Object.freeze({
     outputBudget: "maximum",
     generationReviewGroup: "content.publish",
   }),
-  "content.audit": Object.freeze({
-    type: "reasoning_review",
-    thinking: THINKING_HIGH,
+  "content.repair.copyedit": Object.freeze({
+    type: "structured_generation",
+    thinking: THINKING_LOW,
     responseFormat: "json_object",
     outputBudget: "maximum",
     generationReviewGroup: "content.publish",
-    sameModelAs: "text.adapt",
+    sameModelAs: "content.repair",
   }),
+  "content.audit": CONTENT_AUDIT,
+  "content.audit.article": CONTENT_AUDIT,
   "approval.native": Object.freeze({
     type: "reasoning_review",
     thinking: THINKING_HIGH,

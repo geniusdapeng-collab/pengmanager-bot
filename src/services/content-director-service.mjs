@@ -6,7 +6,8 @@ import { ApiError } from "../domain/errors.mjs";
 import { hashObject } from "../domain/hash.mjs";
 import { requirePublicUrl } from "../domain/public-url.mjs";
 import { publicEditorialClaim, reviewedClaimSource } from "../domain/editorial.mjs";
-import { applyPrivateArticleRevision, privateArticleRevisionScope, validateRevisionPlan } from "../domain/bounded-article-revision.mjs";
+import { applyPrivateArticleRevision, compactRevisionPatch, privateArticleRevisionScope, revisionBatches, validateRevisionPlan }
+  from "../domain/bounded-article-revision.mjs";
 import { reviewedReleaseProjectNames } from "./content-director-model.mjs";
 import { genericProductNamingFindings, genericProductNamingPolicy, normalizeGenericProductNames }
   from "../domain/product-naming.mjs";
@@ -1057,9 +1058,26 @@ export class ContentDirectorService {
     return this.getJob(id);
   }
 
-  async startJob(id, ctx, { repairBlockedArticle = false } = {}) {
+  async startJob(id, ctx, { repairBlockedArticle = false, resumeTruncatedRevision = false } = {}) {
     assertionAdmin(ctx);
     let parentRef;
+    let continuation;
+    if (resumeTruncatedRevision) {
+      const current = await this.getJob(id);
+      assertJobVersion(current, ctx.ifMatch);
+      const prefix = `bounded:${current.resultRef?.sha256}:`;
+      const scopes = current.steps.filter(s => s.kind === "repair.scope" && s.key.startsWith(prefix) && s.status === "succeeded");
+      const edits = current.steps.filter(s => s.kind === "article.repair" && s.key.startsWith(prefix));
+      if (ctx.actor !== "bot-native-preparation" || repairBlockedArticle || current.status !== "failed" || current.error?.code !== "MODEL_OUTPUT_TRUNCATED" ||
+          current.error.unknown || current.truncatedRevision || current.currentStep !== "article.repair" || current.pauseRequested ||
+          !privateArticleRevisionScope(current) || current.boundedRevisionSource !== current.resultRef.sha256 ||
+          scopes.length !== 1 || !scopes[0].receipt?.responseId || edits.length !== 1 || edits[0].status !== "failed" ||
+          !edits[0].key.startsWith(scopes[0].key + ":edit:") || edits[0].error?.code !== "MODEL_OUTPUT_TRUNCATED") {
+        fail(409, "ARTICLE_REVISION_UNAVAILABLE", "未找到与原稿和独审范围绑定的首次已知截断。");
+      }
+      continuation = { source: current.boundedRevisionSource, scopeId: scopes[0].id,
+        scopeHash: hashObject(scopes[0].output), failedEditId: edits[0].id };
+    }
     if (repairBlockedArticle) {
       const current = await this.getJob(id);
       assertJobVersion(current, ctx.ifMatch);
@@ -1076,6 +1094,12 @@ export class ContentDirectorService {
       const row = state.contentDirectorJobs.find(item => item.id === id);
       if (!row) fail(404, "CONTENT_JOB_NOT_FOUND", "找不到内容 Job。");
       if (ctx.ifMatch) assertJobVersion(row, ctx.ifMatch);
+      if (continuation) {
+        row.truncatedRevision = continuation;
+      } else if (row.status === "failed" && row.boundedRevisionSource &&
+                 (row.error?.code === "MODEL_OUTPUT_TRUNCATED" || row.truncatedRevision)) {
+        fail(409, "ARTICLE_REVISION_UNAVAILABLE", "须在原 BOT 工作租约内按已结算的截断回执续办。");
+      }
       if (repairBlockedArticle) {
         if (row.resultRef?.sha256 !== parentRef || row.pauseRequested) fail(409, "CONTENT_RESULT_CHANGED", "冻结稿或人工暂停状态已变化。");
         row.boundedRevisionSource = parentRef;
@@ -2328,6 +2352,10 @@ export class ContentDirectorService {
     let revised = article;
     if (requested.shorten || requested.summary) {
       let step = this.#successfulStep(id, "repair.scope", key);
+      if (job.truncatedRevision && (!step || step.id !== job.truncatedRevision.scopeId ||
+          hashObject(step.output) !== job.truncatedRevision.scopeHash || job.truncatedRevision.source !== job.resultRef.sha256)) {
+        fail(409, "ARTICLE_REVISION_EVIDENCE_CHANGED", "原有独审定点范围已变化，无法续办。");
+      }
       let proposal = step?.output;
       if (!step) {
         await this.#assertLive(id);
@@ -2337,27 +2365,37 @@ export class ContentDirectorService {
         await this.#finishStep(id, step, { output: proposal, receipt: response.receipt });
       }
       const plan = validateRevisionPlan(proposal, article, requested);
-      for (let pass = 1; pass <= 2; pass++) {
-        await this.#assertLive(id);
-        const roundPlan = pass === 1 ? plan : { ...plan, summary: false };
-        const request = { ...input, article: revised, measuredLength: measureArticleLength(revised, brief.targetLength),
-          plan: roundPlan, privateSummaryScope: roundPlan.summary };
-        const editKey = `${key}:edit:${hashObject(request)}`;
-        let attempt = this.#successfulStep(id, "article.repair", editKey);
-        let patch = attempt ? await this.#stepJsonArtifact(id, attempt) : null;
-        if (!attempt) {
-          attempt = await this.#beginStep(id, "article.repair", editKey, request);
-          const output = await this.model.applyBoundedRevision(request);
-          patch = output.value;
-          revised = applyPrivateArticleRevision(revised, roundPlan, patch, authorizedClaimIds, names);
-          const artifact = await this.#writeArtifact(id, `scoped-edits-${hashObject(patch).slice(0, 24)}.json`, patch, "application/json");
-          await this.#finishStep(id, attempt, { output: { beforeHash: articleHash(request.article), afterHash: articleHash(revised) },
-            artifact, receipt: output.receipt });
-        } else {
-          revised = applyPrivateArticleRevision(revised, roundPlan, patch, authorizedClaimIds, names);
-          if (articleHash(revised) !== attempt.output.afterHash) fail(409, "REPAIR_ARTIFACT_CHANGED", "修订结果与原回执不符。");
+      if (job.truncatedRevision) {
+        const originalRequest = { ...input, article, measuredLength: measured, plan, privateSummaryScope: plan.summary };
+        const previous = job.steps.find(s => s.id === job.truncatedRevision.failedEditId);
+        const originalRequestHash = hashObject(originalRequest);
+        if (previous?.key !== key + ":edit:" + originalRequestHash || previous.inputHash !== originalRequestHash) {
+          fail(409, "ARTICLE_REVISION_EVIDENCE_CHANGED", "原始截断请求与当前冻结稿、返修范围不符。");
         }
-        if (!requested.shorten || measureArticleLength(revised, brief.targetLength).characters <= measured.maxCharacters) break;
+        revised = await this.#editRevisionBatches(job, brief, plan, key, targetCharacters, names);
+      } else {
+        for (let pass = 1; pass <= 2; pass++) {
+          await this.#assertLive(id);
+          const roundPlan = pass === 1 ? plan : { ...plan, summary: false };
+          const request = { ...input, article: revised, measuredLength: measureArticleLength(revised, brief.targetLength),
+            plan: roundPlan, privateSummaryScope: roundPlan.summary };
+          const editKey = `${key}:edit:${hashObject(request)}`;
+          let attempt = this.#successfulStep(id, "article.repair", editKey);
+          let patch = attempt ? await this.#stepJsonArtifact(id, attempt) : null;
+          if (!attempt) {
+            attempt = await this.#beginStep(id, "article.repair", editKey, request);
+            const output = await this.model.applyBoundedRevision(request);
+            patch = output.value;
+            revised = applyPrivateArticleRevision(revised, roundPlan, patch, authorizedClaimIds, names);
+            const artifact = await this.#writeArtifact(id, `scoped-edits-${hashObject(patch).slice(0, 24)}.json`, patch, "application/json");
+            await this.#finishStep(id, attempt, { output: { beforeHash: articleHash(request.article), afterHash: articleHash(revised) },
+              artifact, receipt: output.receipt });
+          } else {
+            revised = applyPrivateArticleRevision(revised, roundPlan, patch, authorizedClaimIds, names);
+            if (articleHash(revised) !== attempt.output.afterHash) fail(409, "REPAIR_ARTIFACT_CHANGED", "修订结果与原回执不符。");
+          }
+          if (!requested.shorten || measureArticleLength(revised, brief.targetLength).characters <= measured.maxCharacters) break;
+        }
       }
     }
     await this.#assertLive(id);
@@ -2398,6 +2436,53 @@ export class ContentDirectorService {
         review: null, boundedRevisionSource: null, findings: final.findings, currentStep: "package.freeze",
         revision: row.revision + 1, updatedAt: this.clock().toISOString() });
     });
+  }
+
+  async #editRevisionBatches(job, brief, plan, key, targetCharacters, names) {
+    let article = job.result.article;
+    const batches = revisionBatches(plan);
+    const allClaims = new Set(brief.claimIds);
+    for (const [index, batch] of batches.entries()) {
+      await this.#assertLive(job.id);
+      const overTarget = measureArticleLength(article, brief.targetLength).characters - targetCharacters;
+      if (!batch.summary && overTarget <= 0) break;
+      const sectionFor = target => article.sections.find(s => s.key === target.sectionKey);
+      const textFor = target => sectionFor(target).paragraphs[target.paragraph - 1];
+      const lengthOf = text => text.replace(/\s/gu, "").length;
+      const remainingLength = batches.slice(index).flatMap(b => b.paragraphs)
+        .reduce((total, target) => total + lengthOf(textFor(target)), 0);
+      const entries = batch.summary ? [{ text: article.summary }] : batch.paragraphs.map(target => {
+        const text = textFor(target);
+        const length = lengthOf(text);
+        return { ...target, sectionTitle: sectionFor(target).title, text,
+          targetCharacters: Math.max(1, length - Math.ceil(overTarget * length / remainingLength)) };
+      });
+      const citedIds = [...new Set(batch.paragraphs.flatMap(t => sectionFor(t).claimIds))];
+      const claimIds = citedIds.length ? citedIds : brief.claimIds;
+      const request = { brief: { topic: brief.topic, language: brief.language, claimIds,
+        claims: brief.claims.filter(c => claimIds.includes(c.id)), mustKeep: brief.mustKeep, mustAvoid: brief.mustAvoid },
+        title: article.title, entries, privateSummaryScope: batch.summary };
+      const beforeHash = articleHash(article);
+      const editKey = `${key}:batch:${index}:${hashObject(request)}`;
+      let step = job.steps.find(s => s.kind === "article.repair" && s.key === editKey);
+      if (step) {
+        if (step.status !== "succeeded" || step.inputHash !== hashObject(request) || step.output?.beforeHash !== beforeHash) {
+          fail(409, "ARTICLE_REVISION_RECONCILIATION_REQUIRED", "已有批次尝试，须先核对原回执。");
+        }
+        const patch = await this.#stepJsonArtifact(job.id, step);
+        article = applyPrivateArticleRevision(article, batch, patch, allClaims, names);
+        if (articleHash(article) !== step.output.afterHash) fail(409, "REPAIR_ARTIFACT_CHANGED", "修订批次与原回执不符。");
+        continue;
+      }
+      step = await this.#beginStep(job.id, "article.repair", editKey, request);
+      const response = await this.model.editRevisionBatch(request);
+      const patch = compactRevisionPatch(batch, response.value);
+      article = applyPrivateArticleRevision(article, batch, patch, allClaims, names);
+      const artifact = await this.#writeArtifact(job.id, `scoped-edits-${hashObject(patch).slice(0, 24)}.json`, patch, "application/json");
+      await this.#finishStep(job.id, step, { output: { beforeHash, afterHash: articleHash(article),
+        scopeId: job.truncatedRevision.scopeId, batch }, artifact, receipt: response.receipt });
+    }
+    return article;
   }
 
   async #repairSection(id, input, section, authorizedClaimIds, beforeHash) {

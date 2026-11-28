@@ -739,16 +739,39 @@ function taskHandoffs(task) {
   }));
 }
 
+function continueTruncatedDraft(task, detail = false) {
+  return button("分批续修私稿", async () => {
+    const path = `/tasks/${encodeURIComponent(task.id)}`;
+    await http(path + "/controls", { action: "retry_truncated_draft" }, { version: task.revision });
+    if (detail) await openDetail(path, "任务详情", task.id);
+    await refresh();
+    showMessage("已按原委托和预算分批续修，原失败记录已保留。");
+  });
+}
+
+function partialTaskEvidence(task) {
+  if (task.state !== "partial") return null;
+  if (task.canRetryTruncatedDraft) return panel("私稿编辑中断", node("div", { class: "stack" },
+    node("p", { class: "description" }, "上一轮编辑达到输出长度上限，原稿和已审核范围已保留。"),
+    continueTruncatedDraft(task, true)));
+  const failed = [...list(task.steps)].reverse().find(step => step.state === "failed" && step.output?.code);
+  if (!failed) return null;
+  const code = failed.output.code;
+  const messages = { MODEL_OUTPUT_TRUNCATED: "模型输出达到了本次长度上限。",
+    NATIVE_ARTICLE_NOT_APPROVED: "稿件尚未通过独立审核。", BUDGET_EXCEEDED: "剩余预算不足以预留下一次请求。" };
+  return panel("未完成原因", node("p", { class: "description" }, messages[code] ?? errorMessages[code] ?? "本次执行已停止。", `（${code}）`));
+}
+
 function taskEvidence(task) {
   const costs = list(model.dashboard?.costs).filter(item => item.taskId === task.id);
   const observations = list(task.observations);
   const privateWork = [...list(task.steps)].reverse().find(row => row.output?.privateWork)?.output.privateWork;
-  const privateResult = privateWork?.kind === "draft" && privateWork.body ? panel("私有草稿", node("div", { class: "stack" },
+  const privateResult = privateWork?.kind === "draft" && task.state === "succeeded" && privateWork.state === "prepared" && privateWork.body ? panel("私有草稿", node("div", { class: "stack" },
     node("h3", {}, privateWork.title), node("pre", { class: "detail-data", tabindex: 0 }, privateWork.body))) :
     privateWork?.kind === "research" ? panel("研究结果", feed(list(privateWork.claims), claim => item(
       claim.claimId, "已核事实", "", publicLink(claim.sourceUrl, "读取来源")), empty("暂无可用已核事实", "登记明确来源后再补充证据。"))) : null;
   return node("div", { class: "stack" },
-    privateResult, taskHandoffs(task), costDetails(costs),
+    privateResult, partialTaskEvidence(task), taskHandoffs(task), costDetails(costs),
     observations.length > 0 && node("details", { class: "details" }, node("summary", {}, "复测回执与进度"),
       node("ul", { class: "list" }, observations.map(row => item(
         `T+${row.day}`, [date(row.dueAt), row.paired != null && `${row.paired} 条可配对样本`, label(row.evidenceRef)].filter(Boolean).join(" · "),
@@ -815,6 +838,9 @@ function taskControls(id, row) {
     await refresh();
   };
   const actions = [button("看详情", () => openDetail(`/tasks/${encodeURIComponent(id)}`, "任务详情", id))];
+  if (state === "partial" && row.canRetryTruncatedDraft === true) {
+    actions.push(continueTruncatedDraft(row));
+  }
   if (state === "paused" || state === "waiting_input" && row.canResume !== false) {
     actions.push(button("继续", () => action("resume", "任务已恢复。")));
   }

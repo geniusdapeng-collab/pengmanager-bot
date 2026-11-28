@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyPrivateArticleRevision, privateArticleRevisionScope, validateRevisionPlan } from "../src/domain/bounded-article-revision.mjs";
+import { applyPrivateArticleRevision, compactRevisionPatch, privateArticleRevisionScope, revisionBatches, validateRevisionPlan }
+  from "../src/domain/bounded-article-revision.mjs";
 import { composeArticleBody } from "../src/domain/content-director.mjs";
 
 const paragraphs = ["首段保留来源限定和原有叙述。", "次段简要复述第一段已经说明的限定条件，提醒读者核验归档。"];
@@ -12,6 +13,21 @@ const plan = { paragraphs: [{ sectionKey: "history", paragraph: 2 }], summary: t
 const patch = { edits: [{ sectionKey: "history", paragraph: 2, text: "请核验归档。" }], summary: "Paperbird 的历史说明。" };
 const apply = (value, override = article, scope = plan) => applyPrivateArticleRevision(override, scope, value, new Set(["C1"]), ["Paperbird"]);
 const invalid = { code: "ARTICLE_REVISION_SCOPE_INVALID" };
+
+test("compact edits retain exact position order, cardinality and a separately approved summary", () => {
+  const scope = { ...plan, paragraphs: Array.from({ length: 14 }, (_, i) => ({ sectionKey: "s", paragraph: i + 1 })) };
+  const batches = revisionBatches(scope);
+  assert.equal(batches.length, 8);
+  assert.deepEqual(batches.flatMap(b => b.paragraphs), scope.paragraphs);
+  assert.deepEqual(compactRevisionPatch(batches[0], { texts: ["short summary"] }), { edits: [], summary: "short summary" });
+  assert.deepEqual(compactRevisionPatch(batches[1], { texts: ["A", "B"] }), {
+    edits: [{ sectionKey: "s", paragraph: 1, text: "A" }, { sectionKey: "s", paragraph: 2, text: "B" }],
+  });
+  for (const response of [null, { texts: [] }, { texts: ["one"] }, { texts: ["one", ""] }, { texts: ["a","b"], title: "outside" }]) {
+    assert.throws(() => compactRevisionPatch(batches[1], response), invalid);
+  }
+  assert.throws(() => revisionBatches({ ...scope, paragraphs: [...scope.paragraphs, ...scope.paragraphs] }), invalid);
+});
 
 test("named summary and paragraph repairs preserve all unsigned locations and historical citations", () => {
   const result = apply(patch);

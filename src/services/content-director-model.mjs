@@ -7,7 +7,7 @@ const ARTICLE_LENGTH_GUIDANCE = " Use measuredLength.characters when judging the
 
 const RELEASE_URL = /^https:\/\/github\.com\/([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]{0,99})\/releases\/tag\/[a-z0-9][a-z0-9._-]*$/iu;
 const DIGEST = /^[a-f0-9]{64}$/u;
-const ARTICLE_SUMMARY_SCENES = new Set(["content.outline", "content.audit", "quality.final"]);
+const ARTICLE_SUMMARY_SCENES = new Set(["content.outline", "content.audit", "content.audit.article", "quality.final"]);
 
 function wordsInProse(value) {
   return typeof value === "string"
@@ -42,7 +42,7 @@ export function reviewedReleaseProjectNames(brief) {
 function messages(scene, system, input) {
   const summaryInScope = ARTICLE_SUMMARY_SCENES.has(scene)
     ? input?.privateSummaryScope !== false
-    : scene === "content.repair" && input?.privateSummaryScope === true;
+    : ["content.repair", "content.repair.copyedit"].includes(scene) && input?.privateSummaryScope === true;
   const names = summaryInScope ? reviewedReleaseProjectNames(input?.brief) : [];
   const naming = articleProductNamingPrompt(names);
   return [
@@ -151,9 +151,18 @@ export class ContentDirectorModel {
       "Edit this exact frozen private article within the independent scope. Return {edits:[{sectionKey,paragraph,text}]} and include a summary string only when its edit is authorized. Each replacement must be one shorter original paragraph. You may use a brief sentence to preserve a genuinely duplicative paragraph's essential meaning. Meet the supplied targetCharacters for the complete body, accounting for headings and retained links. Preserve sourced facts, approved source URLs and stated limitations. Distinguish routine recommended checks from verified results. Introduce no new claims, thresholds or instructions to trigger a historical failure. If authorized, disambiguate only the summary using the reviewed primary source. Do not return the entire article.", revisionInput(input));
   }
 
+  async editRevisionBatch(input) {
+    const assignment = input.privateSummaryScope
+      ? "Revise only the supplied summary to identify its verified historical subject. Keep its original scope and qualifications."
+      : "Shorten just the supplied original paragraphs in order, retaining sourced facts, URLs, qualifications and the distinction between reported facts and suggested routine checks. Aim for each supplied character target by removing redundant wording. The system has already allocated the length targets; do not count characters or plan other sections.";
+    return this.#json("content.repair.copyedit",
+      assignment + " Write a direct editorial replacement for each input text. Introduce no new claims, commands or instructions to trigger a historical failure. Return only {texts:[string]} with one replacement per input, without commentary or alternatives.",
+      input);
+  }
+
   async auditArticle(input) {
     return this.#json(
-      "content.audit",
+      "content.audit.article",
       "Act as an independent professional editor. Read the complete article, brief, claims and research. Return {assessment,findings:[{severity,dimension,code,location,message,allowedChanges}],coverage:{facts,structure,expression,policy}}. severity is blocker|major|minor|suggestion; dimension is facts|structure|expression|policy|technical|disclosure. For a section issue use location section:<exact section key> with allowedChanges listing paragraph:<one-based index> for each affected paragraph. Only use the exact section key in allowedChanges when the whole section demonstrably requires revision. Do not rewrite the article. Every numeric claim, current version, API or capability must be supported by supplied evidence. A heading without substantive body is a blocker." + ARTICLE_LENGTH_GUIDANCE,
       input,
     );

@@ -228,7 +228,7 @@ export class ModelDispatcher {
       : undefined;
     void responseFormat;
     const sceneCap = Number.isSafeInteger(policy.outputBudget) ? policy.outputBudget : maxOutputTokens;
-    const taskCap = this.taskOutputCap?.();
+    const taskCap = this.taskOutputCap?.(scene);
     const budget = Object.freeze(await planWindow({
       ...input,
       responseFormat: format,
@@ -324,7 +324,7 @@ export class ModelDispatcher {
             },
             body: wire,
             signal: combined,
-          });
+          }, { scene, wireSha256 });
         } catch (error) {
           if (error instanceof ModelQuotaReceiptError) {
             error.wireSha256 = wireSha256;

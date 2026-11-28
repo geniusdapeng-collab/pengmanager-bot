@@ -17,6 +17,7 @@ import { createPengManagerApplication } from "../application.mjs";
 import { hashAdminPassword } from "../security/admin-auth.mjs";
 import { DeepSeekAdapter } from "../adapters/deepseek.mjs";
 import { ContentDirectorModel } from "../services/content-director-model.mjs";
+import { truncatedNativeRevision } from "./draft-continuation.mjs";
 import { createAiApproval } from "../services/ai-approval.mjs";
 import { publicEditorialClaim } from "../domain/editorial.mjs";
 import { DEEPSEEK_OFFICIAL_BASE_URL, TEXT_PRIMARY_MODEL } from "../model-routing/registry.mjs";
@@ -44,16 +45,19 @@ export async function createBotHost({ env = process.env, settings = loadSettings
   const journal = real ? openIntentJournal(env.BOT_JOURNAL_DIR || settings.journalDir, { primaryDirectory: dataDir }) : null;
   const catalog = loadOperationsCatalog();
   let checkGeo = () => ({ ready: false });
+  let app, daemon, server, stopOnce, meter;
   const core = createBotCore({ dbPath: join(dataDir, "bot.sqlite"), channels: catalog, mode, journal,
+    readProviderReceipt: id => readRecord(join(dataDir, "provider-receipts", id + ".json")),
+    readTruncatedRevision: id => truncatedNativeRevision(app?.store.snapshot(["contentDirectorJobs", "contentDirectorSteps"]), id),
+    providerQuotaFingerprint: id => settings.taskProviderQuota?.taskIds.includes(id) ? meter?.quotaFingerprint : null,
     recoveryMode: env.BOT_RECOVERY === "1", geoPreflight: scope => checkGeo(scope) });
-  let app, daemon, server, stopOnce;
   try {
     const frozen = putRecord(dataDir, "runtime-data-mode", { schema: "pengmanager.bot.workspace-mode/v1", mode });
     if (frozen.schema !== "pengmanager.bot.workspace-mode/v1" || frozen.mode !== mode) {
       throw new Error("The original workspace data mode changed before startup.");
     }
     const modelEndpoint = settings.modelEndpoint || DEEPSEEK_OFFICIAL_BASE_URL;
-    const meter = createMeter({ core, dataDir, pricing: settings.pricing, endpoint: modelEndpoint, mode,
+    meter = createMeter({ core, dataDir, pricing: settings.pricing, endpoint: modelEndpoint, mode,
       taskQuota: settings.taskProviderQuota });
     const apiKey = real ? env.BOT_MODEL_KEY : null;
     const client = new DeepSeekAdapter({ apiKey: apiKey || "unconfigured", baseUrl: modelEndpoint, fetchImpl: meter.fetch,
