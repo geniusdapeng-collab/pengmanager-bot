@@ -2,8 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { digest, privateDirectory, putRecord, readRecord } from "./files.mjs";
 import { BotError, fail, hash } from "./core-store.mjs";
-import { ModelAdmissionError } from "../model-routing/errors.mjs";
+import { ModelAdmissionError, ModelQuotaReceiptError } from "../model-routing/errors.mjs";
 import { TEXT_PRIMARY_MODEL } from "../model-routing/registry.mjs";
+import { admitProviderQuota, quotaReservation, taskProviderQuota } from "./provider-quota.mjs";
 
 const MAX_PROVIDER_BYTES = 3_000_000;
 
@@ -21,8 +22,10 @@ async function boundedBody(response) {
 
 // Rates are the operator's contract in minor currency units per million tokens.
 // The pre-dispatch bound uses the registered provider context window, even if the prompt is short.
-export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl = fetch }) {
+export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl = fetch, taskQuota }) {
   const active = new AsyncLocalStorage();
+  const quota = taskProviderQuota(taskQuota);
+  const scoped = () => quota?.taskIds.includes(active.getStore()?.step.taskId);
   const receipts = privateDirectory(join(dataDir, "provider-receipts"));
   const base = new URL(endpoint);
   if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash) {
@@ -52,6 +55,9 @@ export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl 
   }
   return {
     ready: Boolean(priceReady) && mode === "real",
+    quotaFingerprint: quota ? digest(JSON.stringify({ taskIds: [...quota.taskIds].sort(),
+      maxCalls: quota.maxCalls, maxTotalTokens: quota.maxTotalTokens, maxOutputTokens: quota.maxOutputTokens })) : undefined,
+    maxOutputTokens: () => scoped() ? quota.maxOutputTokens : undefined,
     run: (step, auth, work) => active.run({ step, auth }, work),
     async fetch(url, options = {}) {
       const ctx = active.getStore();
@@ -74,26 +80,40 @@ export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl 
       const reserve = isSearch ? pricing.searchPerRequest : Math.max(1, minor(
         tokenCost(TEXT_PRIMARY_MODEL.contextTokens, pricing.inputPerMillion) + tokenCost(maximum, pricing.outputPerMillion)));
       const { step, auth } = ctx;
+      const hold = scoped() ? await quotaReservation(quota, { body, isSearch }) : undefined;
+      const usageCheckMaximum = hold ? TEXT_PRIMARY_MODEL.maxOutputTokens : maximum;
       // A tariff change conflicts with an existing request reservation. It
       // cannot mint a new dispatch key for the same provider operation.
       const requestKey = hash([step.id, dest.href, digest(options.body)]);
       let cost;
       try {
         cost = core.reserveCost({ id: step.id, epoch: step.epoch, requestKey, currency: pricing.currency,
-          reservedMinor: reserve, provider: dest.origin, requestHash: tariffHash }, auth);
+          reservedMinor: reserve, provider: dest.origin, requestHash: tariffHash }, auth,
+        quota ? row => admitProviderQuota(quota, hold, row, receipts) : undefined);
       } catch (error) {
         if (error instanceof BotError && error.code === "BUDGET_EXCEEDED") throw new ModelAdmissionError(error);
         throw error;
       }
       const saved = readRecord(join(receipts, cost.id + ".json"));
       const restore = row => {
+        const output = JSON.parse(row.body);
         if (row.costId !== cost.id || row.requestKey !== requestKey || row.responseHash !== digest(row.body) ||
             row.rateReference !== pricing.reference || row.currency !== pricing.currency || row.tariffHash !== tariffHash ||
-            row.actualMinor !== measured(JSON.parse(row.body), body, isSearch, maximum, reserve)) {
+            row.actualMinor !== measured(output, body, isSearch, usageCheckMaximum, reserve)) {
           fail(409, "PROVIDER_RECEIPT_CHANGED", "The saved provider response failed its integrity check.");
+        }
+        const reserved = cost.providerTokenHold ?? hold;
+        const usage = output.usage;
+        if (reserved && (!Number.isSafeInteger(usage?.total_tokens) || usage.total_tokens !== usage.prompt_tokens + usage.completion_tokens)) {
+          if (cost.state !== "settled") core.settleCost({ costId: cost.id, status: "unknown" }, auth);
+          throw new ModelQuotaReceiptError({ providerRequestId: row.providerRef, unknown: true });
         }
         core.settleCost({ costId: cost.id, status: "settled", actualMinor: row.actualMinor,
           evidenceRef: row.responseHash, providerRef: row.providerRef }, auth);
+        if (reserved && (usage.prompt_tokens > reserved.inputTokens || usage.completion_tokens > reserved.outputTokens)) {
+          throw new ModelQuotaReceiptError({ providerRequestId: row.providerRef, unknown: false,
+            usageReceipt: { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens, totalTokens: usage.total_tokens } });
+        }
         return new Response(row.body, { status: 200, headers: { "Content-Type": "application/json" } });
       };
       if (saved) return restore(saved);
@@ -110,12 +130,12 @@ export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl 
         const output = JSON.parse(raw);
         const providerRef = output.id || response.headers.get("x-request-id") || response.headers.get("x-ds-trace-id");
         if (typeof providerRef !== "string" || !providerRef) throw new Error("Provider receipt ID missing.");
-        const amount = measured(output, body, isSearch, maximum, reserve);
+        const amount = measured(output, body, isSearch, usageCheckMaximum, reserve);
         const entry = putRecord(receipts, cost.id, { costId: cost.id, requestKey, responseHash: digest(raw), body: raw,
           providerRef, actualMinor: amount, rateReference: pricing.reference, currency: pricing.currency, tariffHash });
         return restore(entry);
       } catch (error) {
-        core.settleCost({ costId: cost.id, status: "unknown" }, auth);
+        if (!(error instanceof ModelQuotaReceiptError)) core.settleCost({ costId: cost.id, status: "unknown" }, auth);
         throw error;
       }
     },

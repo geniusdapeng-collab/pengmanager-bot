@@ -4,16 +4,21 @@ import { privateDirectory } from "./files.mjs";
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
+function readOwnerConfiguration(filename, setting) {
+  const path = resolve(filename);
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.size > 262144 || stat.mode & 0o022 ||
+      (process.getuid && ![0, process.getuid()].includes(stat.uid))) {
+    throw new Error(setting + " must be a bounded, owner-controlled JSON file.");
+  }
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
 export function loadSettings(env = process.env) {
-  let file = {};
-  if (env.BOT_CONFIG) {
-    const path = resolve(env.BOT_CONFIG);
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.size > 262144 || stat.mode & 0o022 ||
-        (process.getuid && ![0, process.getuid()].includes(stat.uid))) {
-      throw new Error("BOT_CONFIG must be a bounded, owner-controlled JSON file.");
-    }
-    file = JSON.parse(readFileSync(path, "utf8"));
+  const file = env.BOT_CONFIG ? readOwnerConfiguration(env.BOT_CONFIG, "BOT_CONFIG") : {};
+  if (env.BOT_TASK_PROVIDER_QUOTA_FILE) {
+    if (file.taskProviderQuota !== undefined) throw new Error("Configure the task quota in only one owner-controlled file.");
+    file.taskProviderQuota = readOwnerConfiguration(env.BOT_TASK_PROVIDER_QUOTA_FILE, "BOT_TASK_PROVIDER_QUOTA_FILE");
   }
   const mode = env.BOT_MODE ?? file.mode ?? "fixture";
   if (!["real", "fixture"].includes(mode)) throw new Error("BOT_MODE must be real or fixture.");

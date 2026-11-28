@@ -13,7 +13,9 @@ import { GeoOsService } from "../src/services/geo-os-service.mjs";
 import { EditorialService } from "../src/services/editorial-service.mjs";
 import { ContentDirectorService } from "../src/services/content-director-service.mjs";
 import { MediaAssets } from "../src/services/media-assets.mjs";
+import { createNativeBotAdapter } from "../src/bot/operations-native.mjs";
 import { ApiError } from "../src/domain/errors.mjs";
+import { measureArticleLength } from "../src/domain/content-director.mjs";
 import { hashObject } from "../src/domain/hash.mjs";
 import { bindFixtureIllustrations } from "./fixtures/article-illustrations.mjs";
 
@@ -43,7 +45,10 @@ class StubModel {
     };
   }
 
-  async auditArticle() {
+  async auditArticle({ article, brief, measuredLength }) {
+    assert.equal(measuredLength.characters, article.body.replace(/\s+/g, "").length);
+    assert.equal(measuredLength.minCharacters, brief.targetLength.minCharacters);
+    assert.equal(measuredLength.maxCharacters, brief.targetLength.maxCharacters);
     return {
       value: { assessment: "Fixture article is structurally complete.", findings: [], coverage: { facts: "checked", structure: "checked", expression: "checked", policy: "checked", technical: "checked", visual: "checked" } },
       receipt: { requestedModel: "fixture", resolvedModel: "fixture", responseId: "audit", requestHash: "e".repeat(64), responseHash: "f".repeat(64), usage: { total_tokens: 1 } },
@@ -100,6 +105,19 @@ async function fixture(t, { aiApproval = null } = {}) {
   return { store, editorial, mediaAssets, director };
 }
 
+test("article length counts only the assembled body, including headings and sources", () => {
+  const body = "## 一\n\n甲\u3000🌱\n\n核验来源\nhttps://example.org/x";
+  const article = { title: "独立标题", body, sections: [{ body }], blocks: [{ text: body }] };
+  const target = { minCharacters: 2000, maxCharacters: 4000 };
+  assert.deepEqual(measureArticleLength(article, target), {
+    method: "article.body/non-whitespace-utf16-v1",
+    characters: 31,
+    ...target,
+  });
+  assert.equal(measureArticleLength({ body: " \r\n\u3000" }, target).characters, 0);
+  assert.equal(measureArticleLength({ body: "字".repeat(4588) }, target).characters, 4588);
+});
+
 test("article Job writes complete sections, independent audit and editable visuals", async t => {
   const f = await fixture(t);
   const job = await f.director.createJob({
@@ -111,6 +129,12 @@ test("article Job writes complete sections, independent audit and editable visua
   const completed = await f.director.processJob(job.id);
   assert.equal(completed.status, "needs_review");
   assert.equal(completed.result.article.sections.length, 3);
+  const reports = f.director.state().contentAuditReports.filter(report => report.jobId === job.id);
+  assert.deepEqual(reports.map(report => report.phase), ["quality.review", "quality.final"]);
+  for (const { measuredLength, reportHash, ...report } of reports) {
+    assert.deepEqual(measuredLength, measureArticleLength(completed.result.article, job.route.targetLength));
+    assert.equal(hashObject({ ...report, measuredLength }), reportHash);
+  }
   assert.ok(completed.result.article.body.length > 1000);
   assert.equal(completed.result.findings.length, 0);
   assert.equal(completed.result.visuals.length, 1);
@@ -214,4 +238,97 @@ test("approved article materializes as an immutable editorial edition", async t 
   assert.equal(materialized.edition.format, "article");
   assert.equal(materialized.edition.body, completed.result.article.body);
   assert.equal(f.editorial.getEdition(materialized.edition.id).snapshotHash, materialized.edition.snapshotHash);
+});
+
+test("a private native retry revises only approved paragraphs on the same frozen job and independently signs the new bytes", async t => {
+  const decisions = [];
+  const aiApproval = { async review(request) {
+    decisions.push(request);
+    return { actor: "ai-reviewer", decision: "approve", snapshotHash: request.snapshotHash,
+      evidenceHash: hashObject(request.evidence), reviewedAt: new Date().toISOString(), modelReceipt: { responseId: "fixture-only" } };
+  } };
+  const f = await fixture(t, { aiApproval });
+  const source = { visibility: "public", label: "Paperbird archive", url: "https://github.com/demo/paperbird/releases/tag/v1" };
+  await f.store.mutate({ type: "test.synthetic_source", actor: "fixture", payload: {} }, state => {
+    state.claims.find(row => row.id === "C003").source = source;
+  });
+  await new GeoOsService({ store: f.store }).approveClaim("C003", {
+    publicLevel: "approved_public", sourceExcerpt: "Paperbird archive records an editorial update.",
+  }, { actor: "fixture", aiApproval });
+
+  const calls = [];
+  const result = value => ({ value, receipt: { responseId: "synthetic-" + calls.length } });
+  const titles = [..."甲乙丙丁戊己庚"];
+  const letters = [..."天地人"];
+  const sections = titles.map((title, i) => ({
+    key: "section" + i, title: title + "节资料", purpose: "梳理获准公开资料", targetCharacters: 530, claimIds: ["C003"],
+  }));
+  const model = f.director.model;
+  model.generateOutline = async () => {
+    calls.push("outline");
+    return result({ title: "历史资料精读", summary: "某历史文档的修订与限制。", sections });
+  };
+  model.draftSection = async ({ section }) => {
+    calls.push("draft");
+    const paragraphs = letters.map(letter => section.title + letter +
+      "资料使用者可核对原始说明，分别记录原文、事实依据和适用限制。".repeat(8));
+    return result({ title: section.title, paragraphs, body: paragraphs.join("\n\n"), claimIds: ["C003"] });
+  };
+  model.auditArticle = async ({ article, measuredLength }) => {
+    calls.push("review");
+    const findings = measuredLength.characters > measuredLength.maxCharacters
+      ? [{ severity: "major", dimension: "structure", code: "target-length-exceeded", location: "article", message: "缩短重复说明" }]
+      : [];
+    if (!article.summary.includes("Paperbird")) findings.push({ severity: "major", dimension: "expression",
+      code: "vague-masked-product-name", location: "summary", message: "在摘要写明已审核来源项目" });
+    return result({ assessment: "fixture", findings, coverage: { facts: true, structure: true, expression: true, policy: true, technical: true, visual: true } });
+  };
+  model.planBoundedRevision = async () => {
+    calls.push("scope");
+    return result({ paragraphs: sections.map(s => ({ sectionKey: s.key, paragraph: 2 })), summary: true, reason: "中段重复范围声明" });
+  };
+  model.applyBoundedRevision = async ({ article, plan }) => {
+    calls.push("edit");
+    const edits = plan.paragraphs.map(({ sectionKey, paragraph }) => {
+      const row = article.sections.find(section => section.key === sectionKey);
+      const old = row.paragraphs[paragraph - 1];
+      return { sectionKey, paragraph, text: plan.summary ? old.slice(0, -1) : old.slice(0, 35) };
+    });
+    return result({ edits, ...(plan.summary ? { summary: "Paperbird 历史修订的来源与限制。" } : {}) });
+  };
+  const adapter = createNativeBotAdapter({ app: { ...f, contentDirector: f.director } });
+  const request = { taskId: "synthetic-private-trial", privateDraft: true, opportunity: { title: "Paperbird 历史资料精读", locale: "zh-CN" },
+    claimIds: ["C003"], reviewCall: (input, review) => review(input) };
+  const first = await adapter.prepareArticle(request);
+  assert.equal(first.code, "NATIVE_ARTICLE_NOT_APPROVED");
+  const original = await f.director.getJob(first.jobId);
+  assert.equal(original.status, "blocked");
+  const oldBytes = (await f.director.readArtifact(original.id, original.resultRef.name)).bytes;
+  assert.ok(original.result.article.body.replace(/\s/g, "").length > 4000);
+  calls.length = 0;
+  const publicRetry = await adapter.prepareArticle({ ...request, privateDraft: false, jobId: original.id });
+  assert.equal(publicRetry.code, "NATIVE_ARTICLE_NOT_APPROVED");
+  assert.deepEqual(calls, []);
+  const second = await adapter.prepareArticle({ ...request, jobId: original.id });
+  assert.equal(second.state, "succeeded");
+  assert.deepEqual(calls, ["scope", "edit", "edit", "review", "review"]);
+  const revised = await f.director.getJob(original.id);
+  assert.equal(revised.status, "approved");
+  assert.equal(revised.result.boundedRevision.parentArtifactSha256, original.resultRef.sha256);
+  assert.notEqual(revised.resultHash, original.resultHash);
+  assert.notEqual(revised.result.illustrationHandoff.sourceHash, original.result.illustrationHandoff.sourceHash);
+  assert.equal(revised.result.boundedRevision.revisedLength.characters <= 4000, true);
+  assert.deepEqual((await f.director.readArtifact(original.id, original.resultRef.name)).bytes, oldBytes);
+  assert.equal(revised.result.article.sourceReferences[0].url, source.url);
+  revised.result.article.sections.forEach((section, i) => {
+    assert.deepEqual(section.claimIds, original.result.article.sections[i].claimIds);
+    assert.equal(section.title, original.result.article.sections[i].title);
+    for (const at of [0, 2]) assert.equal(section.paragraphs[at], original.result.article.sections[i].paragraphs[at]);
+  });
+  assert.deepEqual(decisions.map(d => d.kind), ["geo_claim", "content-director-package"]);
+  assert.equal(decisions[1].snapshotHash, revised.resultHash);
+  assert.equal(second.privateDraft.body, revised.result.article.body);
+  calls.length = 0;
+  assert.deepEqual(await adapter.prepareArticle({ ...request, jobId: original.id }), second);
+  assert.deepEqual(calls, []);
 });

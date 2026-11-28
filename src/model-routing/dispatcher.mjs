@@ -1,7 +1,7 @@
 import { hashObject, hashText } from "../domain/hash.mjs";
 import { DEEPSEEK_REQUEST_BODY_LIMIT_BYTES } from "../../engines/video-edit/packages/base/model-router/deepseek-window.mjs";
 import { parseStrictJson } from "../domain/strict-json.mjs";
-import { ModelAdmissionError, modelError } from "./errors.mjs";
+import { ModelAdmissionError, ModelQuotaReceiptError, modelError } from "./errors.mjs";
 import { planWindow } from "./budget.mjs";
 import { MODEL_POLICY, policyReceipt, resolveScenePolicy } from "./policy.mjs";
 import {
@@ -146,6 +146,7 @@ export class ModelDispatcher {
     maxOutputTokens = TEXT_PRIMARY_MODEL.maxOutputTokens,
     timeoutMs = 600_000,
     maxRetries = 0,
+    taskOutputCap,
     allowUnregisteredModel = false,
   } = {}) {
     if (!String(apiKey ?? "").trim()) {
@@ -169,6 +170,7 @@ export class ModelDispatcher {
     this.maxOutputTokens = maxOutputTokens;
     this.timeoutMs = timeoutMs;
     this.maxRetries = Number.isSafeInteger(maxRetries) && maxRetries >= 0 ? maxRetries : 0;
+    this.taskOutputCap = taskOutputCap;
     this.fetchImpl = fetchImpl;
     this.chatEndpoint = String(chatEndpoint ?? "").trim()
       || `${String(baseUrl ?? "").replace(/\/+$/, "")}/chat/completions`;
@@ -225,6 +227,8 @@ export class ModelDispatcher {
       ? { type: "json_object" }
       : undefined;
     void responseFormat;
+    const sceneCap = Number.isSafeInteger(policy.outputBudget) ? policy.outputBudget : maxOutputTokens;
+    const taskCap = this.taskOutputCap?.();
     const budget = Object.freeze(await planWindow({
       ...input,
       responseFormat: format,
@@ -232,9 +236,7 @@ export class ModelDispatcher {
       reasoningEffort: thinking.effort,
       contextTokens,
       maxOutputTokens: modelMaxOutputTokens,
-      policyMaxOutputTokens: Number.isSafeInteger(policy.outputBudget)
-        ? policy.outputBudget
-        : maxOutputTokens,
+      policyMaxOutputTokens: taskCap === undefined ? sceneCap : Math.min(sceneCap ?? modelMaxOutputTokens, taskCap),
     }));
     const body = {
       model,
@@ -324,6 +326,11 @@ export class ModelDispatcher {
             signal: combined,
           });
         } catch (error) {
+          if (error instanceof ModelQuotaReceiptError) {
+            error.wireSha256 = wireSha256;
+            error.attempts = [...retryEvidence, { attempt, code: error.code, dispatched: true, unknown: error.unknown, retryable: false }];
+            throw error;
+          }
           if (error instanceof ModelAdmissionError) {
             error.wireSha256 = wireSha256;
             error.attempts = [...retryEvidence, { attempt, code: error.code, dispatched: false, unknown: false, retryable: false }];

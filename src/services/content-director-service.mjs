@@ -6,6 +6,8 @@ import { ApiError } from "../domain/errors.mjs";
 import { hashObject } from "../domain/hash.mjs";
 import { requirePublicUrl } from "../domain/public-url.mjs";
 import { publicEditorialClaim, reviewedClaimSource } from "../domain/editorial.mjs";
+import { applyPrivateArticleRevision, privateArticleRevisionScope, validateRevisionPlan } from "../domain/bounded-article-revision.mjs";
+import { reviewedReleaseProjectNames } from "./content-director-model.mjs";
 import { genericProductNamingFindings, genericProductNamingPolicy, normalizeGenericProductNames }
   from "../domain/product-naming.mjs";
 import { CONTENT_ARTIFACT_KINDS, resolveContentIntent } from "../domain/content-intent.mjs";
@@ -18,6 +20,7 @@ import {
   contentDirectorEntity,
   contentDirectorEtag,
   deterministicArticleFindings,
+  measureArticleLength,
   normalizeArticleLength,
   splitSectionsFromMarkdown,
   validateOutline,
@@ -95,6 +98,13 @@ function claimRows(state, ids) {
   if (rows.some(row => !row)) fail(404, "CLAIM_NOT_FOUND", "内容任务引用了不存在的 Claim。");
   if (rows.some(row => row.state !== "approved")) fail(422, "CLAIM_NOT_APPROVED", "内容任务只能使用已批准 Claim。");
   return rows;
+}
+
+function briefClaimEvidence(state, claims, now) {
+  return claims.map(claim => {
+    const source = reviewedClaimSource(state, claim, now, Math.floor(24_000 / claims.length));
+    return { id: claim.id, text: claim.text, type: claim.type, source: claim.source, ...(source ? { reviewedSource: source } : {}) };
+  });
 }
 
 function articleCitationUrls(researchSources, claims, now) {
@@ -1047,8 +1057,17 @@ export class ContentDirectorService {
     return this.getJob(id);
   }
 
-  async startJob(id, ctx) {
+  async startJob(id, ctx, { repairBlockedArticle = false } = {}) {
     assertionAdmin(ctx);
+    let parentRef;
+    if (repairBlockedArticle) {
+      const current = await this.getJob(id);
+      assertJobVersion(current, ctx.ifMatch);
+      if (current.status !== "blocked" || !privateArticleRevisionScope(current)) {
+        fail(409, "ARTICLE_REVISION_UNAVAILABLE", "原稿不具备可自动修订的限定意见。");
+      }
+      parentRef = current.resultRef.sha256;
+    }
     await this.store.mutate({
       type: "content_director.job_started",
       actor: ctx.actor,
@@ -1057,6 +1076,10 @@ export class ContentDirectorService {
       const row = state.contentDirectorJobs.find(item => item.id === id);
       if (!row) fail(404, "CONTENT_JOB_NOT_FOUND", "找不到内容 Job。");
       if (ctx.ifMatch) assertJobVersion(row, ctx.ifMatch);
+      if (repairBlockedArticle) {
+        if (row.resultRef?.sha256 !== parentRef || row.pauseRequested) fail(409, "CONTENT_RESULT_CHANGED", "冻结稿或人工暂停状态已变化。");
+        row.boundedRevisionSource = parentRef;
+      }
       if (row.missing.length) fail(409, "CONTENT_JOB_NEEDS_INPUT", "任务仍缺少必要输入。", { missing: row.missing });
       if (!["queued", "needs_resume", "blocked", "failed"].includes(row.status)) {
         fail(409, "CONTENT_JOB_NOT_STARTABLE", `当前状态 ${row.status} 不能启动。`);
@@ -1824,10 +1847,7 @@ export class ContentDirectorService {
       mustKeep: job.input.mustKeep,
       mustAvoid: job.input.mustAvoid,
       claimIds: job.input.claimIds,
-      claims: claims.map(claim => {
-        const source = reviewedClaimSource(state, claim, this.clock(), Math.floor(24_000 / claims.length));
-        return { id: claim.id, text: claim.text, type: claim.type, source: claim.source, ...(source ? { reviewedSource: source } : {}) };
-      }),
+      claims: briefClaimEvidence(state, claims, this.clock()),
       sourceMaterials: materials,
     };
   }
@@ -1993,6 +2013,10 @@ export class ContentDirectorService {
     const state = this.state();
     const job = state.contentDirectorJobs.find(row => row.id === id);
     const brief = await this.#briefContext(job);
+    if (job.boundedRevisionSource) {
+      await this.#reviseFrozenPrivateArticle(await this.getJob(id), brief);
+      return;
+    }
     const briefHash = hashObject(brief);
     let step = await this.#beginStep(id, "brief.compile", `brief:${briefHash}`, brief);
     const briefArtifact = await this.#writeArtifact(id, `brief-${briefHash.slice(0, 12)}.json`, brief, "application/json");
@@ -2275,6 +2299,107 @@ export class ContentDirectorService {
     }, "content_director.job_result_frozen");
   }
 
+  async #reviseFrozenPrivateArticle(job, brief) {
+    const id = job.id;
+    const frozen = job.result;
+    const scope = privateArticleRevisionScope(job);
+    if (!scope || job.boundedRevisionSource !== job.resultRef.sha256 || articleHash(frozen.article) !== job.resultHash) {
+      fail(409, "CONTENT_RESULT_CHANGED", "待修稿、授权目标或原审稿结论已变化。");
+    }
+    const prior = job.reports.find(row => row.phase === "quality.final" && row.contentHash === job.resultHash &&
+      hashObject(row.findings) === hashObject(frozen.findings));
+    const names = reviewedReleaseProjectNames(brief);
+    const priorStep = job.steps.find(step => step.kind === "quality.final" && step.status === "succeeded" &&
+      prior && step.output?.reportHash === prior.reportHash);
+    const storedReport = priorStep && await this.#stepJsonArtifact(id, priorStep);
+    if (!prior || !storedReport || storedReport.reportHash !== prior.reportHash || storedReport.contentHash !== job.resultHash ||
+        hashObject(storedReport.findings) !== hashObject(frozen.findings) || (scope.summary && !names.length) ||
+        hashObject(frozen.research?.claims) !== hashObject(brief.claims)) {
+      fail(409, "ARTICLE_REVISION_EVIDENCE_CHANGED", "缺少绑定原稿的终审或当前仍有效的来源证据。");
+    }
+    const article = frozen.article;
+    const measured = measureArticleLength(article, brief.targetLength);
+    const requested = { shorten: scope.length && measured.characters > measured.maxCharacters, summary: scope.summary };
+    const targetCharacters = Math.max(measured.minCharacters, Math.floor(measured.maxCharacters * 0.93));
+    const input = { brief, article, measuredLength: measured, targetCharacters, requested, findings: scope.findings,
+      previousFinalReportHash: prior.reportHash, privateSummaryScope: scope.summary };
+    const key = `bounded:${job.resultRef.sha256}:${hashObject(input)}`;
+    const authorizedClaimIds = new Set(brief.claimIds);
+    let revised = article;
+    if (requested.shorten || requested.summary) {
+      let step = this.#successfulStep(id, "repair.scope", key);
+      let proposal = step?.output;
+      if (!step) {
+        await this.#assertLive(id);
+        step = await this.#beginStep(id, "repair.scope", key, input);
+        const response = await this.model.planBoundedRevision(input);
+        proposal = validateRevisionPlan(response.value, article, requested);
+        await this.#finishStep(id, step, { output: proposal, receipt: response.receipt });
+      }
+      const plan = validateRevisionPlan(proposal, article, requested);
+      for (let pass = 1; pass <= 2; pass++) {
+        await this.#assertLive(id);
+        const roundPlan = pass === 1 ? plan : { ...plan, summary: false };
+        const request = { ...input, article: revised, measuredLength: measureArticleLength(revised, brief.targetLength),
+          plan: roundPlan, privateSummaryScope: roundPlan.summary };
+        const editKey = `${key}:edit:${hashObject(request)}`;
+        let attempt = this.#successfulStep(id, "article.repair", editKey);
+        let patch = attempt ? await this.#stepJsonArtifact(id, attempt) : null;
+        if (!attempt) {
+          attempt = await this.#beginStep(id, "article.repair", editKey, request);
+          const output = await this.model.applyBoundedRevision(request);
+          patch = output.value;
+          revised = applyPrivateArticleRevision(revised, roundPlan, patch, authorizedClaimIds, names);
+          const artifact = await this.#writeArtifact(id, `scoped-edits-${hashObject(patch).slice(0, 24)}.json`, patch, "application/json");
+          await this.#finishStep(id, attempt, { output: { beforeHash: articleHash(request.article), afterHash: articleHash(revised) },
+            artifact, receipt: output.receipt });
+        } else {
+          revised = applyPrivateArticleRevision(revised, roundPlan, patch, authorizedClaimIds, names);
+          if (articleHash(revised) !== attempt.output.afterHash) fail(409, "REPAIR_ARTIFACT_CHANGED", "修订结果与原回执不符。");
+        }
+        if (!requested.shorten || measureArticleLength(revised, brief.targetLength).characters <= measured.maxCharacters) break;
+      }
+    }
+    await this.#assertLive(id);
+    const current = measureArticleLength(revised, brief.targetLength);
+    const allowedUrls = articleCitationUrls(frozen.research.sources, claimRows(this.state(), brief.claimIds), this.clock());
+    const deterministicFindings = deterministicArticleFindings(revised, { ...brief.targetLength, allowedUrls,
+      mustKeep: brief.mustKeep, mustAvoid: brief.mustAvoid });
+    if (current.characters < current.minCharacters || current.characters > current.maxCharacters) {
+      deterministicFindings.push({ severity: "major", dimension: "structure", code: "SIGNED_LENGTH_OUT_OF_RANGE", location: "article",
+        message: `修订后实测 ${current.characters} 字符，签署范围为 ${current.minCharacters}–${current.maxCharacters}。` });
+    }
+    const auditInput = { article: revised, brief, research: frozen.research, deterministicFindings, repairRound: 3 };
+    const reviewed = await this.#auditArticle(id, { ...auditInput, phase: "quality.review" });
+    retainOpenFindings(deterministicFindings, reviewed.findings.filter(f => ["major","blocker"].includes(f.severity)));
+    await this.#assertLive(id);
+    const final = await this.#auditArticle(id, { ...auditInput, phase: "quality.final", final: true });
+    const complete = !final.findings.some(f => ["major","blocker"].includes(f.severity) && f.status === "open");
+    const contentHash = articleHash(revised);
+    const result = { ...frozen, article: revised, findings: final.findings, complete, contentHash, frozenAt: final.generatedAt,
+      illustrationHandoff: articleIllustrationHandoff(revised, brief.language),
+      boundedRevision: { parentContentHash: job.resultHash, parentArtifactSha256: job.boundedRevisionSource,
+        parentFinalReportHash: prior.reportHash, finalReportHash: final.reportHash, originalLength: measured, revisedLength: current } };
+    const artifact = await this.#writeArtifact(id, `content-package-${hashObject(result).slice(0, 24)}-revision.json`, result, "application/json");
+    const freeze = await this.#beginStep(id, "package.freeze", `revision:${key}:${final.reportHash}`, { contentHash, parent: job.boundedRevisionSource });
+    await this.#finishStep(id, freeze, { artifact, output: { contentHash, complete, finalReportHash: final.reportHash } });
+    await this.store.mutate({ type: "content_director.bounded_revision_frozen", actor: "content-director-worker", payload: { jobId: id, contentHash } }, state => {
+      const row = state.contentDirectorJobs.find(r => r.id === id);
+      if (row.status !== "running" || row.pauseRequested || row.resultRef?.sha256 !== job.boundedRevisionSource) {
+        fail(409, row.pauseRequested ? "CONTENT_JOB_PAUSED" : "CONTENT_RESULT_CHANGED", "原任务已暂停、取消或更换冻结稿。");
+      }
+      const now = this.clock();
+      const liveClaims = claimRows(state, brief.claimIds);
+      if (liveClaims.some(claim => !publicEditorialClaim(claim, { now })) ||
+          hashObject(briefClaimEvidence(state, liveClaims, now)) !== hashObject(brief.claims)) {
+        fail(409, "ARTICLE_REVISION_EVIDENCE_CHANGED", "修订期间获准引用的来源发生变化。");
+      }
+      Object.assign(row, { status: complete ? "needs_review" : "blocked", resultRef: artifact, resultHash: contentHash,
+        review: null, boundedRevisionSource: null, findings: final.findings, currentStep: "package.freeze",
+        revision: row.revision + 1, updatedAt: this.clock().toISOString() });
+    });
+  }
+
   async #repairSection(id, input, section, authorizedClaimIds, beforeHash) {
     const { sectionIndex, ...legacyInput } = input;
     const legacyKey = `${section.key}:round-${input.round}:${beforeHash}`;
@@ -2403,7 +2528,8 @@ export class ContentDirectorService {
     const step = await this.#beginStep(id, final ? "quality.final" : "quality.review", auditKey, { article, brief, research, visuals });
     const method = final ? (this.model.finalAuditArticle ?? this.model.auditArticle) : this.model.auditArticle;
     if (typeof method !== "function") fail(503, "CONTENT_AUDIT_UNAVAILABLE", "当前模型适配器不支持独立审核。");
-    const result = await method.call(this.model, { article, brief, research, visuals, deterministicFindings });
+    const measuredLength = measureArticleLength(article, brief.targetLength);
+    const result = await method.call(this.model, { article, brief, research, visuals, deterministicFindings, measuredLength });
     if (final && (!result.value.coverage || typeof result.value.coverage !== "object" ||
         ["facts", "structure", "expression", "policy", "technical", "visual"].some(key => !Object.hasOwn(result.value.coverage, key)))) {
       fail(502, "CONTENT_FINAL_COVERAGE_INVALID", "最终审核报告缺少事实、结构、表达、政策、技术或视觉覆盖。");
@@ -2417,6 +2543,7 @@ export class ContentDirectorService {
       phase,
       repairRound,
       contentHash,
+      measuredLength,
       assessment: boundedText(String(result.value.assessment ?? ""), "审核结论", 20_000, { optional: true }),
       coverage: result.value.coverage && typeof result.value.coverage === "object" ? result.value.coverage : {},
       findings: [...deterministic, ...modelFindings],
