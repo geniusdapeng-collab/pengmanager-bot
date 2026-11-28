@@ -272,6 +272,63 @@ test("readback is a trusted callback, not caller-provided hashes, and mismatches
   assert.deepEqual(f.store.snapshot(), before);
 });
 
+test("pending website readback allows unrelated writes and records just one idempotent receipt", async t => {
+  const f = await editorialFixture(t); await readyWebsite(f);
+  const { variant } = await createEditionVariant(f);
+  const active = await activateRelease(f, await approvedRelease(f, variant));
+  const verifyCtx = context(active, "shared-readback-request");
+  const original = f.service.verifyReadback;
+  const started = Promise.withResolvers(), resume = Promise.withResolvers();
+  f.service.verifyReadback = async expected => { started.resolve(); await resume.promise; return original(expected); };
+  const verifying = f.service.verifyRelease(active.id, { confirm: true }, verifyCtx);
+  await started.promise;
+  let deadline;
+  try {
+    const story = await Promise.race([
+      f.service.createStory({ workingTitle: "Unrelated editorial write" }, context()),
+      new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error("Readback held the store writer")), 3000); }),
+    ]);
+    assert.equal(story.workingTitle, "Unrelated editorial write");
+  } finally {
+    clearTimeout(deadline);
+    resume.resolve();
+    await Promise.allSettled([verifying]);
+  }
+  const published = await verifying;
+  assert.equal(published.status, "published");
+  assert.deepEqual(await f.service.verifyRelease(active.id, { confirm: true }, verifyCtx), published);
+  assert.equal(f.calls.readbacks, 1);
+  assert.equal(f.store.snapshot().events.filter(event => event.type === "editorial.release_verified").length, 1);
+});
+
+test("a withdrawal during website readback prevents the stale proof from being recorded", async t => {
+  const f = await editorialFixture(t); await readyWebsite(f);
+  const { variant } = await createEditionVariant(f);
+  const active = await activateRelease(f, await approvedRelease(f, variant));
+  const original = f.service.verifyReadback;
+  const started = Promise.withResolvers(), resume = Promise.withResolvers();
+  f.service.verifyReadback = async expected => { started.resolve(); await resume.promise; return original(expected); };
+  const verifying = f.service.verifyRelease(active.id, { confirm: true }, context(active));
+  const settled = assert.rejects(verifying, { code: "PRECONDITION_FAILED" });
+  await started.promise;
+  let deadline;
+  try {
+    const withdrawn = await Promise.race([
+      f.service.withdrawRelease(active.id, { reason: "Withdraw during an outstanding readback." }, context(active)),
+      new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error("Readback blocked withdrawal")), 3000); }),
+    ]);
+    assert.equal(withdrawn.status, "withdrawn");
+  } finally {
+    clearTimeout(deadline);
+    resume.resolve();
+    await Promise.allSettled([settled]);
+  }
+  await settled;
+  assert.equal(f.service.getRelease(active.id).receipt, null);
+  assert.equal(f.service.getVariant(variant.id).status, "scheduled");
+  assert.equal(f.store.snapshot().events.filter(event => event.type === "editorial.release_verified").length, 0);
+});
+
 test("stable canonical routes retain old snapshots; atomic activation has one winner and withdrawal retains receipts", async t => {
   const f = await editorialFixture(t); await readyWebsite(f);
   const first = await createEditionVariant(f), release1 = await approvedRelease(f, first.variant), active1 = await activateRelease(f, release1);
