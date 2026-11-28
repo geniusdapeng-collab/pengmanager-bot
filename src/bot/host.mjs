@@ -46,8 +46,9 @@ export async function createBotHost({ env = process.env, settings = loadSettings
   const catalog = loadOperationsCatalog();
   let checkGeo = () => ({ ready: false });
   let app, daemon, server, stopOnce, meter;
+  const readProviderReceipt = id => readRecord(join(dataDir, "provider-receipts", id + ".json"));
   const core = createBotCore({ dbPath: join(dataDir, "bot.sqlite"), channels: catalog, mode, journal,
-    readProviderReceipt: id => readRecord(join(dataDir, "provider-receipts", id + ".json")),
+    readProviderReceipt,
     readTruncatedRevision: id => truncatedNativeRevision(app?.store.snapshot(["contentDirectorJobs", "contentDirectorSteps"]), id),
     providerQuotaFingerprint: id => settings.taskProviderQuota?.taskIds.includes(id) ? meter?.quotaFingerprint : null,
     recoveryMode: env.BOT_RECOVERY === "1", geoPreflight: scope => checkGeo(scope) });
@@ -112,6 +113,8 @@ export async function createBotHost({ env = process.env, settings = loadSettings
           content: { verifiedClaims: facts.length, stories: app.editorial.listStories().items.length,
             verifiedPublicReleases: app.editorial.listReleases().items.filter(row => row.status === 'published' && row.receipt).length } };
       },
+      readProviderReceipt,
+      readReviewedRevision: (jobId, source) => app.contentDirector.readReviewedRevisionPreview(jobId, source),
       readIllustrations: task => readTaskIllustrations(app, task) });
     server = createServer(async (req, res) => {
       try {

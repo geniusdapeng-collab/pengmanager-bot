@@ -4,13 +4,16 @@ export const DRAFT_CONTINUATION_KEY = "bounded-draft-continuation";
 export const DRAFT_CONTINUATION_ACTION = "retry_truncated_draft";
 
 export function isSettledTruncatedResponse(row, wire) {
-  const record = JSON.parse(row.data);
+  return isSettledProviderResponse(row, JSON.parse(row.data), wire, "length");
+}
+
+export function isSettledProviderResponse(row, record, wire, finishReason) {
   if (!wire || wire.costId !== row.id || wire.requestKey !== record.requestKey || !record.providerRef ||
       wire.providerRef !== record.providerRef || wire.actualMinor !== row.actual || wire.currency !== row.currency ||
       typeof wire.body !== "string" || digest(wire.body) !== wire.responseHash || wire.responseHash !== record.evidenceRef) return false;
   const envelope = JSON.parse(wire.body);
   const usage = envelope.usage;
-  return envelope.id === wire.providerRef && envelope.choices?.length === 1 && envelope.choices[0]?.finish_reason === "length" &&
+  return envelope.id === wire.providerRef && envelope.choices?.length === 1 && envelope.choices[0]?.finish_reason === finishReason &&
     [usage?.prompt_tokens, usage?.completion_tokens, usage?.total_tokens].every(n => Number.isSafeInteger(n) && n >= 0) &&
     usage.prompt_tokens + usage.completion_tokens === usage.total_tokens &&
     (!record.providerTokenHold || (usage.prompt_tokens <= record.providerTokenHold.inputTokens &&

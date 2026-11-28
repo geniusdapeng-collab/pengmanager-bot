@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { hashAdminPassword } from '../src/security/admin-auth.mjs';
 import { createBotCore } from '../src/bot/core.mjs';
 import { createBotHttp } from '../src/bot/http.mjs';
@@ -218,4 +219,72 @@ test('browser control requires owner session binding, gateway requires its own k
   assert.equal(handler.isSessionActive(browserSession), false);
   assert.deepEqual(events, [browserSession]);
   assert.equal((await request('/api/bot/v1/session', { headers: { Cookie: auth.cookie } })).status, 401);
+});
+
+test('the original owner reads a distinct unapproved revision from the task without charging or submitting', async t => {
+  const digest = text => createHash('sha256').update(text).digest('hex');
+  const jobId = 'CDJ-1234567890abcdef0123';
+  const link = { jobId, sourceStepId: 'original', costId: 'cost-old', scopeStepId: 'scope', sourceSha256: digest('frozen') };
+  const failure = { jobId, code: 'MODEL_OUTPUT_TRUNCATED' };
+  const task = { id: 'task-1', mandateId: 'mandate', state: 'partial', steps: [
+    { id: 'original', kind: 'prepare', key: 'private-draft', state: 'failed', output: failure },
+    { id: 'continued', kind: 'prepare', key: 'bounded-draft-continuation', state: 'failed', output: failure, draftContinuation: link },
+  ] };
+  const wires = new Map();
+  function bill(id, stepId, scene, finish) {
+    const providerRef = 'model-' + id;
+    const body = JSON.stringify({ id: providerRef, choices: [{ finish_reason: finish }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+    const wire = { costId: id, requestKey: 'request-' + id, providerRef, body, responseHash: digest(body), actualMinor: 1, currency: 'CNY' };
+    wires.set(id, wire);
+    return { id, taskId: task.id, stepId, state: 'settled', providerRef, evidenceRef: wire.responseHash, actual: 1, currency: wire.currency,
+      requestKey: wire.requestKey, providerTokenHold: { scene, inputTokens: 11, outputTokens: 5 } };
+  }
+  const paid = [bill('cost-old','original','content.repair','length'), bill('cost-first','continued','content.audit.article','stop'),
+    bill('cost-last','continued','quality.final','length')];
+  const mandate = { id: task.mandateId, ownerId: owner.actorId, workMode: 'draft_only' };
+  const frozen = JSON.stringify({ task, paid });
+  const core = { getTask: () => structuredClone(task), getMandate: () => mandate, listCosts: () => paid };
+  const nativeCalls = [];
+  const preview = { jobId, approved: false, stage: 'quality.final', code: failure.code, contentHash: digest('reviewed'),
+    title: 'A reviewed revision', summary: 'Private summary', body: 'Private pending revision', characters: 22, editedBatches: 2,
+    firstReview: { reportHash: digest('review'), minor: 1, major: 0, blocker: 0, suggestion: 0 }, reviewResponseId: 'model-cost-first' };
+  const { request, login, origin } = await host(t, { core, readProviderReceipt: id => wires.get(id),
+    async readReviewedRevision(id, source) { nativeCalls.push({ id, source }); return preview; } });
+  const path = '/api/bot/v1/tasks/task-1/revision-preview';
+  assert.equal((await request(path)).status, 401);
+  const auth = await login();
+  const headers = { Cookie: auth.cookie };
+  assert.equal((await request(path+'?jobId=different', { headers })).status, 422);
+  assert.equal((await request(path, { method: 'POST', headers: writeHeaders(origin, auth), body: '{}' })).status, 405);
+  const metadata = await (await request(path.replace('/revision-preview',''), { headers })).json();
+  assert.equal(metadata.canReadRevisionPreview, true);
+  assert.equal(JSON.stringify(metadata).includes(preview.body), false);
+  assert.equal(nativeCalls.length, 0);
+  for (let i=0; i<2; i++) {
+    const res = await request(path, { headers });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await res.json(), { taskId: task.id, ...preview });
+  }
+  assert.deepEqual(nativeCalls[0], { id: jobId, source: { sourceSha256: link.sourceSha256, scopeStepId: link.scopeStepId } });
+  assert.equal(JSON.stringify({ task, paid }), frozen);
+  mandate.ownerId = 'different-owner';
+  assert.equal((await request(path, { headers })).status, 403);
+  mandate.ownerId = owner.actorId;
+  paid.at(-1).providerTokenHold.scene = 'content.repair';
+  assert.equal((await request(path, { headers })).status, 409);
+  paid.at(-1).providerTokenHold.scene = 'quality.final';
+  const old = wires.get('cost-last');
+  wires.set('cost-last', { ...old, body: old.body + ' ' });
+  assert.equal((await request(path, { headers })).status, 409);
+  wires.set('cost-last', old);
+  const first = wires.get('cost-first');
+  wires.set('cost-first', { ...first, requestKey: 'other-request' });
+  assert.equal((await request(path, { headers })).status, 409);
+  wires.set('cost-first', first);
+  preview.approved = true;
+  assert.equal((await request(path, { headers })).status, 409);
+  preview.approved = false;
+  task.steps[1].draftContinuation.sourceStepId = 'different-prepare';
+  assert.equal((await request(path, { headers })).status, 409);
 });
