@@ -1,6 +1,6 @@
 import { articleIllustrationStyleRule } from "../../public/article-illustration-style.js";
 import { articleIllustrationPlanHash, assertArticleIllustrations } from "../domain/article-illustrations.mjs";
-import { claimEditorialFingerprint, destinationEditorialIdentity, editorialEditionSnapshot, publicEditorialClaim } from "../domain/editorial.mjs";
+import { destinationEditorialIdentity, editorialEditionSnapshot, publicEditorialClaim, reviewedClaimSource } from "../domain/editorial.mjs";
 import { PolicyError } from "../domain/errors.mjs";
 import { hashObject, hashText } from "../domain/hash.mjs";
 
@@ -144,12 +144,8 @@ function publicSources(state, content, publicOrigin, now) {
 function readableClaims(state, content, now) {
   return content.claimIds.flatMap(id => {
     const claim = state.claims.find(item => item.id === id);
-    const source = state.editorialClaimSourceExcerpts?.find(item => item.claimId === id);
-    if (!source || !publicEditorialClaim(claim, { now }) || source.claimHash !== claimEditorialFingerprint(claim)
-        || claim.aiReview?.decision !== "approve" || claim.aiReview.actor !== "ai-reviewer"
-        || source.reviewHash !== claim.aiReview.evidenceHash || hashText(source.excerpt) !== source.sha256) return [];
-    return [{ claimId: id, registeredClaimUrl: claim.source.url, excerpt: source.excerpt, sha256: source.sha256,
-      claimSourceReview: { hash: source.reviewHash, reviewedAt: claim.aiReview.reviewedAt } }];
+    const source = reviewedClaimSource(state, claim, now);
+    return source ? [source] : [];
   });
 }
 

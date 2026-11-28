@@ -542,6 +542,42 @@ test("the original BOT managed job can recover its known repair failure after lo
   assert.deepEqual(calls, ["read original idempotency key","restore checkpoint"]);
 });
 
+test("reviewed source bytes reach private planning, authoring and the final independent package review", async t => {
+  const model = new AdvancedModel();
+  const f = await fixture(t, model);
+  const geo = new GeoOsService({ store: f.store });
+  const excerpt = "Historical fixture release: adds a documented operating limit.";
+  const aiApproval = { async review(input) {
+    return { actor: "ai-reviewer", kind: input.kind, decision: "approve", snapshotHash: input.snapshotHash,
+      evidenceHash: hashObject(input.evidence), reviewedAt: "2025-01-01T00:00:00.000Z" };
+  } };
+  await geo.approveClaim("C003", { publicLevel: "approved_public", sourceExcerpt: excerpt }, { ...context(), aiApproval });
+  const native = createNativeBotAdapter({ app: { store: f.store, editorial: f.editorial, contentDirector: f.director } });
+  const [fact] = await native.resolveClaims(["C003"]);
+  assert.equal(fact.reviewedSource.excerpt, excerpt);
+  assert.equal(fact.reviewedSource.registeredClaimUrl, fact.sourceUrl);
+  const draft = model.draftSection.bind(model);
+  model.draftSection = async input => {
+    assert.deepEqual(input.brief.claims[0].reviewedSource, fact.reviewedSource);
+    return draft(input);
+  };
+  f.director.aiApproval = { async review(input) {
+    assert.equal(input.kind, "content-director-package");
+    assert.deepEqual(input.evidence.reviewedClaimSources, [fact.reviewedSource]);
+    return aiApproval.review(input);
+  } };
+  const job = await f.director.createJob({ intent: "编写历史说明的阅读指南", explicitKind: "article", claimIds: ["C003"],
+    targetLength: { minCharacters: 500, maxCharacters: 1600 } }, context());
+  const result = await f.director.processJob(job.id);
+  assert.equal(result.status, "needs_review");
+  const approved = await f.director.approveJob(job.id, { contentHash: result.result.contentHash }, context({ ifMatch: result.etag }));
+  assert.equal(approved.review.aiApproval.decision, "approve");
+  await f.store.mutate({ type: "fixture.change_source_bytes", actor: "fixture" }, state => {
+    state.editorialClaimSourceExcerpts[0].excerpt += " Altered after review.";
+  });
+  assert.equal((await native.resolveClaims(["C003"]))[0].reviewedSource, undefined);
+});
+
 test("article citations retain legacy URL sources and reject private or unbound links", async t => {
   const f = await fixture(t, new AdvancedModel());
   const legacy = "https://nodejs.org/en/about";

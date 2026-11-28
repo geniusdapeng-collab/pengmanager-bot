@@ -1,4 +1,5 @@
 import { parseMandateDraft, stopMandateSelection } from "./mandate-draft.js";
+import { isTaskInProgress, notificationTitle } from "./dashboard.js";
 
 const apiRoot = "/api/bot/v1";
 const content = document.querySelector("#content");
@@ -255,7 +256,7 @@ function resultEntry(outcome) {
 function showHome(data) {
   const outcomes = list(data.outcomes);
   const mandates = list(data.mandates);
-  const tasks = list(data.tasks);
+  const activeTasks = list(data.tasks).filter(isTaskInProgress);
   const notifications = list(data.notifications);
   const active = mandates.filter((row) => (row.state ?? row.status) === "active");
   const liveOutcomes = data.dataMode === "fixture" ? [] : outcomes.filter((row) => row.dataMode !== "fixture" && verified(row));
@@ -264,7 +265,7 @@ function showHome(data) {
     new Date(a.nextRunAt ?? a.next_run_at) - new Date(b.nextRunAt ?? b.next_run_at))[0];
   const stats = [
     ["核验公开", liveOutcomes.length], ["有效委托", active.length],
-    ["待处理任务", tasks.filter((row) => !["succeeded", "completed", "canceled", "cancelled"].includes(row.state ?? row.status)).length],
+    ["待处理任务", activeTasks.length],
     ["待查看提醒", pending.length],
   ];
   return [
@@ -278,12 +279,12 @@ function showHome(data) {
       node("div", { class: "stack" },
         panel("最近交付", feed((data.dataMode === "fixture" ? outcomes : liveOutcomes).slice(0, 6), resultEntry,
           empty("暂无已核验的公开成果", "正式对象通过公开回读后会显示在这里。")), navigateLink("看任务", "tasks")),
-        panel("正在推进", feed(tasks.slice(0, 5), (row) => item(
+        panel("正在推进", feed(activeTasks.slice(0, 5), (row) => item(
           label(row.title) || identifier(row), date(row.nextRunAt ?? row.createdAt), namedState(row.state ?? row.status)),
-        empty("暂无任务", "委托触发或登记信源后，任务会在这里显示。")))),
+        empty("当前没有待处理任务", "可以在任务页查看过往记录。")))),
       node("div", { class: "stack" },
         panel("提醒", feed(pending.slice(0, 5), (row) => item(
-          label(row.title ?? row.kind) || "经营提醒", label(row.message ?? row.summary), namedState(row.status ?? row.state), null, "caution"),
+          notificationTitle(row), label(row.message ?? row.summary), namedState(row.status ?? row.state), null, "caution"),
         empty("当前无需处理", "出现需要你决定的事项时，会在这里给出原因和下一步。"))),
         panel("阵地与费用", node("div", { class: "stack" },
           node("p", { class: "description" }, `已登记 ${list(data.channels).length} 个阵地 · ${list(data.costs).length} 条费用记录`),
@@ -828,7 +829,7 @@ function showTasks(data) {
   const tasks = list(data.tasks);
   const unread = list(data.notifications).filter(row => ["pending", "delivered", "failed"].includes(row.state)).slice(0, 8);
   const reminders = unread.length ? panel("待查阅提醒", feed(unread, row => item(
-    label(row.title ?? row.kind) || "经营提醒", label(row.summary), namedState(row.state),
+    notificationTitle(row), label(row.summary), namedState(row.state),
     button("标记为已读", async () => {
       await http(`/notifications/${encodeURIComponent(row.id)}/ack`, {});
       await refresh();

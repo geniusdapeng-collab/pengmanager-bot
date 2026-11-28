@@ -7,6 +7,7 @@ import { createIllustrationInbox, createNativeBotAdapter } from './operations-na
 import { compareGeoRounds, createGeoBotAdapter, normalizeGeoScope } from './operations-geo.mjs';
 import { describeChannelExceptions, loadOperationsCatalog, planChannels } from './operations-policy.mjs';
 import { identifySourceCandidate } from './sources.mjs';
+import { hashObject } from '../domain/hash.mjs';
 
 export { CHANNEL_IDS, loadOperationsCatalog, planChannels } from './operations-policy.mjs';
 export { createDevConnector } from './operations-dev.mjs';
@@ -119,7 +120,7 @@ export function createBotOperations({
   });
 }
 
-async function paidAction(core, operations, step, auth, phase, run, { orderKey, readSettled, resumePending } = {}) {
+async function paidAction(core, operations, step, auth, phase, run, { orderKey, requestIdentity = orderKey, readSettled, resumePending } = {}) {
   if (operations.mode === 'fixture' || operations.perRequestMetering) return run();
   const terms = operations.costPolicy?.({ phase, step });
   if (!terms || !Number.isSafeInteger(terms.reservedMinor) || terms.reservedMinor <= 0 ||
@@ -127,7 +128,7 @@ async function paidAction(core, operations, step, auth, phase, run, { orderKey, 
     fail(409, 'MODEL_COST_AUTHORIZATION_REQUIRED', 'Authorize an exact price ceiling and receipt for this external work.');
   }
   const { id: costId } = await core.reserveCost({
-    id: step.id, epoch: step.epoch, requestKey: hash([step.id, phase, orderKey ?? null]), currency: terms.currency,
+    id: step.id, epoch: step.epoch, requestKey: hash([step.id, phase, requestIdentity ?? null]), currency: terms.currency,
     reservedMinor: terms.reservedMinor, ...(orderKey ? { provider: 'native_signed_order', requestHash: orderKey }
       : terms.provider ? { provider: terms.provider } : {}),
   }, auth);
@@ -281,6 +282,7 @@ async function discovery(core, operations, step, auth, task, mandate) {
     } else {
       const input = {
         objective: mandate.objective,
+        ...(mandate.workMode === 'draft_only' ? { workMode: 'draft_only', audience: opportunity.audience ?? null } : {}),
         opportunity: { title: opportunity.title, locale: opportunity.locale,
           sourceUrl: typeof material.sourceUrl === 'string' ? material.sourceUrl.slice(0, 1300) : null,
           sourceExcerpt: typeof material.excerpt === 'string' && task.input.sourceId !== 'manual' &&
@@ -290,9 +292,27 @@ async function discovery(core, operations, step, auth, task, mandate) {
         correction,
         technicalAuthorContribution: Boolean(opportunity.authorContributionRef),
       };
-      assessment = step.output?.assessment ?? validateStrategy(await paidAction(core, operations, step, auth,
-        'strategy_model', () => operations.semanticPlanner(input)), input.facts);
-      if (!step.output?.assessment) await core.checkpoint({ id: step.id, epoch: step.epoch, output: { assessment } }, auth);
+      const assessmentInputHash = hashObject(input);
+      const prior = step.output?.assessment;
+      const priorHash = step.output?.assessmentInputHash;
+      const ownerDraft = mandate.workMode === 'draft_only' && task.input.provenance === 'owner_request';
+      const privateOwnerEvidence = ownerDraft && input.facts.some(fact => fact.reviewedSource);
+      const legacyDefer = prior?.action === 'defer' || step.output?.code === 'BOT_PRIVATE_DRAFT_DEFERRED';
+      if (ownerDraft && !prior && legacyDefer && !privateOwnerEvidence) {
+        return hold(core, step, auth, operations, step.output);
+      }
+      const reuse = prior && (priorHash === assessmentInputHash || (!priorHash && !(privateOwnerEvidence && legacyDefer)));
+      if (!reuse && (prior || legacyDefer) && core.listCosts(auth, mandate.id).some(cost =>
+        cost.stepId === step.id && ['reserved', 'dispatched', 'unknown'].includes(cost.state))) {
+        fail(409, 'ORIGINAL_COST_RECONCILIATION_REQUIRED', 'Resolve the original decision cost before assessing changed evidence.');
+      }
+      assessment = validateStrategy(reuse ? prior : await paidAction(core, operations, step, auth,
+        'strategy_model', () => operations.semanticPlanner(input), { requestIdentity: privateOwnerEvidence ? assessmentInputHash : undefined }), input.facts);
+      if (priorHash !== assessmentInputHash || !prior) {
+        const output = { ...step.output, assessment, assessmentInputHash };
+        await core.checkpoint({ id: step.id, epoch: step.epoch, output }, auth);
+        step.output = output;
+      }
       opportunity.assessment = assessment;
       if (assessment.action === 'correct' && (!correction || !assessment.claimIds.includes(correction.claimId))) {
         opportunity.assessment = { action: 'defer', reason: 'original_edition_binding_required' };

@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { parseMandateDraft, stopMandateSelection } from '../public/bot/mandate-draft.js';
 import { createBotCore } from '../src/bot/core.mjs';
 import { createBotHttp } from '../src/bot/http.mjs';
 import { createBotOperations, runBotStep } from '../src/bot/operations.mjs';
+import { openIntentJournal } from '../src/bot/files.mjs';
 
 const day = 86_400_000;
 const today = new Date(2026, 10, 27, 12);
@@ -115,6 +119,75 @@ test('signed research and draft mandates restrict paid planning, native preparat
   assert.ok(finished.channels.every(row => row.machinePublish !== true && !row.packageHash));
   assert.deepEqual(observations, [['plan'], ['prepare', true]]);
   assert.equal(core.outcomes(draft.id, owner).effects.length, 0);
+});
+
+test('same private owner task reuses its defer and reassesses only after its reviewed evidence changes', async t => {
+  const primary = mkdtempSync(join(realpathSync(tmpdir()), 'pm-source-check-'));
+  const journal = mkdtempSync(join(realpathSync(tmpdir()), 'pm-source-journal-'));
+  const core = createBotCore({ clock: () => today.getTime(), mode: 'real',
+    journal: openIntentJournal(journal, { primaryDirectory: primary, requireSeparateVolume: false }) });
+  t.after(() => { core.close(); rmSync(journal, { recursive: true, force: true }); rmSync(primary, { recursive: true, force: true }); });
+  const claimId = 'fixture-source';
+  const fact = { claimId, state: 'approved', text: 'Historical fixture release', sourceUrl: 'https://source.example.org/history' };
+  let calls = 0;
+  const operations = createBotOperations({ mode: 'real', modelReady: true,
+    native: { mode: 'real', resolveClaims: () => [{ ...fact }] },
+    costPolicy: () => ({ currency: 'CNY', reservedMinor: 2,
+      measure: () => ({ actualMinor: 1, providerRef: 'isolated-response-' + calls, evidenceRef: 'isolated-evidence-' + calls }) }),
+    semanticPlanner: async input => {
+      calls++;
+      assert.equal(input.workMode, 'draft_only');
+      return { action: input.facts[0].reviewedSource ? 'prepare' : 'defer', reason: 'Use the approved source bytes.', claimIds: [claimId] };
+    } });
+  const mandate = core.createMandate({ objective: 'Read a historical source for the owner', workMode: 'draft_only',
+    trustScope: { claimIds: [claimId] }, budget: { currency: 'CNY', limitMinor: 5 }, idempotencyKey: 'same-private-review' }, owner);
+  const task = core.createTask({ mandateId: mandate.id, idempotencyKey: 'one-private-task', title: 'Read the original source',
+    input: { provenance: 'owner_request', opportunity: { title: 'Read the original source', claimIds: [claimId] } } }, owner);
+  const discover = () => runBotStep(core, operations, core.claim({taskId: task.id, kinds: ['discover']}, worker), worker);
+  const resume = () => {
+    const current = core.getTask(task.id, owner);
+    core.controlTask(task.id, { action: 'resume', expectedRevision: current.revision, idempotencyKey: 'resume-' + current.revision }, owner);
+  };
+  await discover();
+  const initial = core.getTask(task.id, owner);
+  assert.equal(initial.state, 'waiting_input');
+  assert.equal(initial.steps[0].output.assessment.action, 'defer');
+  assert.match(initial.steps[0].output.assessmentInputHash, /^[a-f0-9]{64}$/);
+  resume();
+  await discover();
+  assert.equal(calls, 1);
+  assert.equal(core.getBudget(mandate.id, owner).spentMinor, 1);
+  // The earlier worker persisted the waiting code while dropping the assessment checkpoint.
+  resume();
+  const oldLease = core.claim({ taskId: task.id, kinds: ['discover'] }, worker);
+  core.report({ id: oldLease.id, epoch: oldLease.epoch, status: 'waiting_input',
+    output: { code: 'BOT_PRIVATE_DRAFT_DEFERRED', dataMode: 'real' } }, worker);
+  resume();
+  await discover();
+  assert.equal(core.getTask(task.id, owner).state, 'waiting_input');
+  assert.equal(calls, 1);
+  assert.equal(core.getBudget(mandate.id, owner).spentMinor, 1);
+  fact.reviewedSource = { excerpt: 'Original approved text.', sha256: 'a'.repeat(64) };
+  resume();
+  await discover();
+  assert.equal(calls, 2);
+  assert.deepEqual(core.listCosts(owner, mandate.id).map(row => [row.state, row.actualMinor]), [['settled',1], ['settled',1]]);
+  const reviewed = core.getTask(task.id, owner);
+  assert.ok(reviewed.steps.some(step => step.kind === 'prepare'));
+  assert.equal(JSON.stringify(reviewed).includes('Original approved text.'), false);
+
+  const uncertainTask = core.createTask({ mandateId: mandate.id, idempotencyKey: 'unresolved-prior-decision',
+    title: 'Read the original source', input: { provenance: 'owner_request', opportunity: { claimIds: [claimId] } } }, owner);
+  const pending = core.claim({ taskId: uncertainTask.id, kinds: ['discover'] }, worker);
+  const cost = core.reserveCost({ id: pending.id, epoch: pending.epoch, requestKey: 'an-older-provider-request',
+    currency: 'CNY', reservedMinor: 2 }, worker);
+  core.markCostDispatched({ costId: cost.id, id: pending.id, epoch: pending.epoch }, worker);
+  const withPending = core.checkpoint({ id: pending.id, epoch: pending.epoch,
+    output: { code: 'BOT_PRIVATE_DRAFT_DEFERRED', dataMode: 'real' } }, worker);
+  await runBotStep(core, operations, withPending, worker);
+  assert.equal(calls, 2);
+  assert.equal(core.getTask(uncertainTask.id, owner).state, 'needs_reconcile');
+  assert.equal(core.listCosts(owner, mandate.id).find(row => row.id === cost.id).state, 'unknown');
 });
 
 test('same-origin authenticated preview is side-effect-free and exact revision revocation leaves the other mandate active', async t => {
