@@ -362,7 +362,10 @@ async function prepare(core, operations, step, auth, task, mandate) {
     taskId: task.id, opportunity, claimIds: opportunity.facts.map(fact => fact.claimId),
     ...(mandate.workMode === 'draft_only' ? { privateDraft: true } : {}),
     jobId: step.output?.jobId,
-    onJob: jobId => core.checkpoint({ id: step.id, epoch: step.epoch, output: { jobId } }, auth),
+    onJob: async jobId => {
+      await core.checkpoint({ id: step.id, epoch: step.epoch, output: { jobId } }, auth);
+      step.output = { ...step.output, jobId };
+    },
     runModel: run => paidAction(core, operations, step, auth, 'article_model', run),
     reviewCall: chargeReview(core, operations, step, auth),
   });

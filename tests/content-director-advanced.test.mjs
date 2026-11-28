@@ -16,6 +16,8 @@ import { ContentDirectorService } from "../src/services/content-director-service
 import { MediaAssets } from "../src/services/media-assets.mjs";
 import { bindFixtureIllustrations } from "./fixtures/article-illustrations.mjs";
 import { createContentVideoHandoff } from "../src/video-runtime/content-video-router.mjs";
+import { createNativeBotAdapter } from "../src/bot/operations-native.mjs";
+import { hashObject } from "../src/domain/hash.mjs";
 
 const RECEIPT = {
   requestedModel: "advanced-fixture",
@@ -349,6 +351,195 @@ test("an approved visual package can be reordered without overwriting the previo
   assert.notEqual(revised.result.contentHash, first.result.contentHash);
   assert.equal(revised.status, "needs_review");
   assert.equal(f.store.snapshot().contentDirectorRevisions.some(row => row.kind === "visuals"), true);
+});
+
+test("production-shaped findings bind numeric text and keyed sections to independently scoped paragraph edits", async t => {
+  const model = new AdvancedModel();
+  const originalDraft = model.draftSection.bind(model);
+  const originals = new Map();
+  model.draftSection = async input => {
+    const result = await originalDraft(input);
+    if (input.section.key === "problem") {
+      result.value.paragraphs[0] += "一个未经验证的数值 42。";
+      result.value.body = result.value.paragraphs.join("\n\n");
+    }
+    originals.set(input.section.key, [...result.value.paragraphs]);
+    return result;
+  };
+  const originalAudit = model.auditArticle.bind(model);
+  model.auditArticle = async input => {
+    const result = await originalAudit(input);
+    if (model.auditCalls === 1) result.value.findings.push({ severity: "major", dimension: "facts", code: "SCOPE_CONTRADICTION",
+      location: "section:method", message: "第二段应区分建议和经核查的结论。", allowedChanges: [] });
+    return result;
+  };
+  model.planSectionRepair = async input => {
+    assert.equal(input.sectionKey, "method");
+    return { value: { paragraphs: [2], reason: "The second original paragraph conflates guidance with a claim." }, receipt: RECEIPT };
+  };
+  model.repairSection = async input => {
+    const n = input.section.key === "problem" ? 1 : 2;
+    assert.deepEqual(input.allowedParagraphs, [n]);
+    const text = input.currentSection.paragraphs[n-1].replace("一个未经验证的数值 42。", "") + "这属于建议，读者仍可自行核查。";
+    return { value: { edits: [{ paragraph: n, text }], claimIds: [] }, receipt: RECEIPT };
+  };
+  const f = await fixture(t, model);
+  const source = "https://github.com/google/guetzli/releases/tag/v1.0.1";
+  await f.store.mutate({ type: "fixture.public_scope", actor: "fixture" }, state => {
+    state.claims.find(row => row.id === "C003").source = { label: "Historical release", url: source, visibility: "public" };
+  });
+  await new GeoOsService({ store: f.store }).approveClaim("C003", { approvedBy: "fixture reviewer", publicLevel: "approved_public" });
+  const audience = "给维护既有系统的工程师。读者需要知道项目名称、操作步骤和如何设计验证。";
+  const job = await f.director.createJob({ intent: "编写回归验证指南", explicitKind: "article", claimIds: ["C003"], audience,
+    allowWebResearch: false, targetLength: { minCharacters: 500, maxCharacters: 1600 } }, context());
+  const result = await f.director.processJob(job.id);
+  assert.equal(result.status, "needs_review");
+  const article = result.result.article;
+  assert.ok(article.body.includes(source));
+  assert.equal(article.tags.includes(audience), false);
+  assert.deepEqual(article.sourceReferences, [{claimId: "C003", url: source}]);
+  assert.deepEqual(article.sections[0].paragraphs.slice(1), originals.get("problem").slice(1));
+  assert.equal(article.sections[1].paragraphs[0], originals.get("method")[0]);
+  assert.equal(article.sections[1].paragraphs[2], originals.get("method")[2]);
+  assert.deepEqual(article.sections[2].paragraphs, originals.get("delivery"));
+  assert.equal(result.reports.find(r => r.phase === "quality.final").contentHash, result.result.contentHash);
+  assert.ok(result.steps.some(s => s.kind === "repair.scope" && s.receipt));
+});
+
+test("bare default keys identify their own section and cannot authorize a different numeric index", async t => {
+  const model = new AdvancedModel();
+  const generate = model.generateOutline.bind(model);
+  model.generateOutline = async input => {
+    const result = await generate(input);
+    result.value.sections.forEach(section => { delete section.key; });
+    return result;
+  };
+  const audit = model.auditArticle.bind(model);
+  model.auditArticle = async input => {
+    const result = await audit(input);
+    if (model.auditCalls === 1) {
+      const base = { severity: "major", dimension: "structure", message: "Only the first section was approved for rewriting.",
+        allowedChanges: ["section-1"] };
+      result.value.findings = [{ ...base, code: "FIRST", location: "section-1" }, { ...base, code: "SECOND", location: "section:1" }];
+    }
+    return result;
+  };
+  const calls = [];
+  const repair = model.repairSection.bind(model);
+  model.repairSection = async input => {
+    calls.push(input.section.key);
+    assert.deepEqual(input.findings.map(finding => finding.code), ["FIRST"]);
+    return repair(input);
+  };
+  const f = await fixture(t, model);
+  const job = await f.director.createJob({ intent: "编写验证指南", explicitKind: "article", claimIds: ["C003"],
+    targetLength: { minCharacters: 500, maxCharacters: 1600 } }, context());
+  const result = await f.director.processJob(job.id);
+  assert.deepEqual(calls, ["section-1"]);
+  assert.equal(result.status, "blocked");
+  assert.ok(result.findings.some(finding => finding.code === "SECOND" && finding.status === "open"));
+});
+
+test("an empty independent repair scope leaves the actual blocking finding open", async t => {
+  const model = new AdvancedModel({repairFirst:true});
+  const audit = model.auditArticle.bind(model);
+  model.auditArticle = async input => {
+    const result = await audit(input);
+    result.value.findings.forEach(f => { f.allowedChanges = []; });
+    return result;
+  };
+  model.planSectionRepair = async () => ({ value: {paragraphs: [], reason: "No specific edit can be justified."}, receipt: RECEIPT });
+  model.repairSection = async () => assert.fail("No paragraph edit was authorized");
+  const f = await fixture(t, model);
+  const job = await f.director.createJob({ intent: "编写验证指南", explicitKind: "article", claimIds: ["C003"],
+    targetLength: { minCharacters: 500, maxCharacters: 1600 } }, context());
+  const result = await f.director.processJob(job.id);
+  assert.equal(result.status, "blocked");
+  assert.ok(result.findings.some(f => f.status === "open" && f.code === "FIXTURE_REPAIR_REQUIRED"));
+});
+
+test("a valid old repair receipt is reused after interruption without another paid repair", async t => {
+  const model = new AdvancedModel({ repairFirst: true });
+  const f = await fixture(t, model);
+  let legacyInput;
+  const repair = model.repairSection.bind(model);
+  model.repairSection = async input => {
+    const { sectionIndex, ...original } = input;
+    assert.equal(sectionIndex, 0);
+    legacyInput = original;
+    return repair(input);
+  };
+  const review = model.auditArticle.bind(model);
+  model.auditArticle = async input => {
+    if (model.auditCalls === 1) throw new Error("Interrupted after successful repair");
+    return review(input);
+  };
+  const job = await f.director.createJob({ intent: "编写回归验证指南", explicitKind: "article", claimIds: ["C003"],
+    targetLength: { minCharacters: 500, maxCharacters: 1600 } }, context());
+  await assert.rejects(f.director.processJob(job.id), /Interrupted after successful repair/);
+  await f.store.mutate({ type: "fixture.old_repair_receipt", actor: "fixture" }, state => {
+    const step = state.contentDirectorSteps.find(row => row.jobId === job.id && row.kind === "article.repair");
+    assert.equal(step.status, "succeeded");
+    step.key = `${step.output.sectionKey}:round-${step.output.round}:${step.output.beforeHash}`;
+    step.inputHash = hashObject(legacyInput);
+  });
+  model.auditArticle = review;
+  model.repairSection = async () => assert.fail("A matching old receipt already binds this repair");
+  await f.director.startJob(job.id, context());
+  const result = await f.director.processJob(job.id);
+  assert.equal(result.status, "needs_review");
+  assert.equal(result.steps.filter(row => row.kind === "article.repair").length, 1);
+});
+
+test("a patch to a paragraph outside the independent scope is rejected", async t => {
+  const model = new AdvancedModel({ repairFirst: true });
+  const audit = model.auditArticle.bind(model);
+  model.auditArticle = async input => {
+    const result = await audit(input);
+    result.value.findings.forEach(finding => { finding.allowedChanges = []; });
+    return result;
+  };
+  model.planSectionRepair = async () => ({ value: { paragraphs: [2], reason: "Only paragraph 2 addresses the issue." }, receipt: RECEIPT });
+  model.repairSection = async () => ({ value: { edits: [{ paragraph: 1, text: "Unexpected change." }] }, receipt: RECEIPT });
+  const f = await fixture(t, model);
+  const job = await f.director.createJob({ intent: "编写验证指南", explicitKind: "article", claimIds: ["C003"],
+    targetLength: { minCharacters: 500, maxCharacters: 1600 } }, context());
+  await assert.rejects(f.director.processJob(job.id), { code: "REPAIR_SCOPE_VIOLATION" });
+  assert.equal(f.store.snapshot().contentRepairAttempts.length, 0);
+});
+
+test("stale conditional restarts preserve newer owner pause and cancellation decisions", async t => {
+  const f = await fixture(t, new AdvancedModel());
+  const job = await f.director.createJob({ intent: "编写验证指南", explicitKind: "article", claimIds: ["C003"],
+    targetLength: { minCharacters: 500, maxCharacters: 1600 } }, context());
+  const paused = await f.director.pauseJob(job.id, context({ ifMatch: job.etag }));
+  await assert.rejects(f.director.startJob(job.id, context({ ifMatch: job.etag })), { code: "PRECONDITION_FAILED" });
+  assert.equal((await f.director.getJob(job.id)).pauseRequested, true);
+  await f.director.cancelJob(job.id, context({ ifMatch: paused.etag }));
+  await assert.rejects(f.director.startJob(job.id, context({ ifMatch: paused.etag })), { code: "PRECONDITION_FAILED" });
+  await assert.rejects(f.director.startJob(job.id, context()), { code: "CONTENT_JOB_NOT_STARTABLE" });
+  assert.equal((await f.director.getJob(job.id)).status, "cancelled");
+});
+
+test("the original BOT managed job can recover its known repair failure after losing the step checkpoint", async t => {
+  const f = await fixture(t, new AdvancedModel());
+  await new GeoOsService({ store: f.store }).approveClaim("C003", { approvedBy: "fixture reviewer", publicLevel: "approved_public" });
+  const calls = [];
+  const original = { id: "CDJ-fixture", createdBy: "bot-native-preparation", managedExecution: true,
+    input: { intent: "原始选题", language: "zh-CN", claimIds: ["C003"] }, status: "failed", error: {code:"REPAIR_SCOPE_REQUIRED"} };
+  const director = { aiApproval: {}, getStatus: () => ({runningJobs:0, maxConcurrentJobs:2}),
+    async createJob() { calls.push("read original idempotency key"); return original; },
+    async startJob(id) { assert.equal(id, original.id); calls.push("resume"); return {...original,status:"queued"}; },
+    async processJob(id, policy) { assert.deepEqual(policy,{managedExecution:true}); calls.push("process"); return {...original,status:"queued"}; } };
+  const native = createNativeBotAdapter({app:{store:f.store,editorial:f.editorial, contentDirector:director}});
+  const input = {taskId:"same-private-task", opportunity:{title:"原始选题",locale:"zh-CN"},claimIds:["C003"],privateDraft:true,
+    onJob: id => { assert.equal(id,original.id); calls.push("restore checkpoint"); }, runModel: work => work()};
+  assert.equal((await native.prepareArticle(input)).state, "retry");
+  assert.deepEqual(calls, ["read original idempotency key","restore checkpoint","resume","process"]);
+  calls.length = 0;
+  original.error.code = "AI_APPROVAL_REVIEW_UNRESOLVED";
+  assert.equal((await native.prepareArticle(input)).state, "waiting_input");
+  assert.deepEqual(calls, ["read original idempotency key","restore checkpoint"]);
 });
 
 test("article citations retain legacy URL sources and reject private or unbound links", async t => {
