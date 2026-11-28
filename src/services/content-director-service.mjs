@@ -257,7 +257,7 @@ function completedModelStep(step, scene) {
   const receipt = step?.receipt;
   return step?.status === "succeeded" && receipt?.policy?.scene === scene && receipt.finishReason === "stop" &&
     typeof receipt.responseId === "string" && receipt.responseId.length > 0 && SHA256.test(receipt.responseHash ?? "") &&
-    receipt.requestedModel && receipt.returnedModel === receipt.requestedModel;
+    typeof receipt.requestedModel === "string" && receipt.requestedModel.length > 0 && receipt.resolvedModel === receipt.requestedModel;
 }
 
 function upsertMissing(values) {

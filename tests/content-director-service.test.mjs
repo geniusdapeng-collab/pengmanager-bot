@@ -12,6 +12,8 @@ import { createEditorialBackup } from "../src/services/editorial-backup.mjs";
 import { GeoOsService } from "../src/services/geo-os-service.mjs";
 import { EditorialService } from "../src/services/editorial-service.mjs";
 import { ContentDirectorService } from "../src/services/content-director-service.mjs";
+import { ContentDirectorModel } from "../src/services/content-director-model.mjs";
+import { createModelDispatcher } from "../src/model-routing/dispatcher.mjs";
 import { MediaAssets } from "../src/services/media-assets.mjs";
 import { createNativeBotAdapter } from "../src/bot/operations-native.mjs";
 import { ApiError } from "../src/domain/errors.mjs";
@@ -261,10 +263,7 @@ async function verifyRevision(t, mode) {
   }, { actor: "fixture", aiApproval });
 
   const calls = [];
-  const result = (value, scene = "fixture") => ({ value, receipt: {
-    responseId: "synthetic-" + calls.length, responseHash: hashObject(value), finishReason: "stop",
-    policy: { scene }, requestedModel: "fixture", returnedModel: "fixture",
-  } });
+  const result = value => ({ value, receipt: { responseId: "synthetic-" + calls.length } });
   const titles = [..."甲乙丙丁戊己庚"];
   const letters = [..."天地人"];
   const sections = titles.map((title, i) => ({
@@ -290,7 +289,7 @@ async function verifyRevision(t, mode) {
       code: "vague-masked-product-name", location: "summary", message: "在摘要写明已审核来源项目" });
     if (mode === "final review truncation" && article.summary.includes("Paperbird")) findings.push({ severity: "minor",
       dimension: "expression", code: "EDITORIAL_NOTE", location: "summary", message: "核对专用名词。" });
-    return result({ assessment: "fixture", findings, coverage: { facts: true, structure: true, expression: true, policy: true, technical: true, visual: true } }, "content.audit.article");
+    return result({ assessment: "fixture", findings, coverage: { facts: true, structure: true, expression: true, policy: true, technical: true, visual: true } });
   };
   if (mode === "final review truncation") {
     model.finalAuditArticle = async input => {
@@ -301,7 +300,7 @@ async function verifyRevision(t, mode) {
   }
   model.planBoundedRevision = async () => {
     calls.push("scope");
-    return result({ paragraphs: sections.map(s => ({ sectionKey: s.key, paragraph: 2 })), summary: true, reason: "中段重复范围声明" }, "content.audit");
+    return result({ paragraphs: sections.map(s => ({ sectionKey: s.key, paragraph: 2 })), summary: true, reason: "中段重复范围声明" });
   };
   model.applyBoundedRevision = async ({ article, plan }) => {
     calls.push("edit");
@@ -319,15 +318,37 @@ async function verifyRevision(t, mode) {
     if (input.privateSummaryScope) {
       calls.push("summary");
       assert.ok(input.entries[0].text.includes("某历史"));
-      return result({ texts: ["Paperbird 历史修订的来源与限制。"] }, "content.repair.copyedit");
+      return result({ texts: ["Paperbird 历史修订的来源与限制。"] });
     }
     const [entry] = input.entries;
     assert.equal(entry.paragraph, 2);
     assert.ok(entry.targetCharacters < entry.text.length);
     calls.push(entry.sectionKey);
     if (mode === "incomplete compact continuation") throw new ApiError(502, "MODEL_OUTPUT_TRUNCATED", "second fixture failure");
-    return result({ texts: [entry.text.slice(0, Math.max(12, entry.targetCharacters - 2))] }, "content.repair.copyedit");
+    return result({ texts: [entry.text.slice(0, Math.max(12, entry.targetCharacters - 2))] });
   };
+  if (mode === "final review truncation") {
+    // Preserve the real dispatcher and ContentDirectorModel receipt conversion. Only
+    // the provider response is supplied in process; no network or credential is used.
+    const implementations = {
+      "content.audit": model.planBoundedRevision, "content.repair.copyedit": model.editRevisionBatch,
+      "content.audit.article": model.auditArticle,
+    };
+    let sequence = 0;
+    const productionModel = new ContentDirectorModel({ deepSeek: {
+      async completeTask({ scene, messages }) {
+        const { value } = await implementations[scene](JSON.parse(messages.at(-1).content));
+        const dispatcher = createModelDispatcher({ apiKey: "isolated-test", baseUrl: "https://api.deepseek.com", fetchImpl: async () =>
+          Response.json({ id: "fixture-response-" + (++sequence), model: "deepseek-flash",
+            choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(value) }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }) });
+        return dispatcher.completeTask({ scene, messages });
+      },
+    } });
+    for (const method of ["planBoundedRevision", "editRevisionBatch", "auditArticle"]) {
+      model[method] = productionModel[method].bind(productionModel);
+    }
+  }
   const adapter = createNativeBotAdapter({ app: { ...f, contentDirector: f.director } });
   const request = { taskId: "synthetic-private-trial", privateDraft: true, opportunity: { title: "Paperbird 历史资料精读", locale: "zh-CN" },
     claimIds: ["C003"], reviewCall: (input, review) => review(input) };
@@ -397,6 +418,16 @@ async function verifyRevision(t, mode) {
       await writeFile(file, Buffer.alloc(bytes.length, "x"));
       await assert.rejects(read(), { code: "CONTENT_ARTIFACT_CHANGED" });
       await writeFile(file, bytes);
+      const scopeReceipt = stopped.steps.find(s => s.id === scopeStepId).receipt;
+      assert.equal(scopeReceipt.resolvedModel, scopeReceipt.requestedModel);
+      assert.equal(Object.hasOwn(scopeReceipt, "returnedModel"), false);
+      await f.store.mutate({ type: "test.changed_model", actor: "fixture", payload: {} }, state => {
+        state.contentDirectorSteps.find(s => s.id === scopeStepId).receipt.resolvedModel = "different-model";
+      });
+      await assert.rejects(read(), { code: "ARTICLE_REVISION_PREVIEW_UNAVAILABLE" });
+      await f.store.mutate({ type: "test.restore_model", actor: "fixture", payload: {} }, state => {
+        state.contentDirectorSteps.find(s => s.id === scopeStepId).receipt.resolvedModel = scopeReceipt.resolvedModel;
+      });
       const final = stopped.steps.find(s => s.kind === "quality.final" && s.status === "failed");
       await f.store.mutate({ type: "test.mismatched_failed_final", actor: "fixture", payload: {} }, state => {
         state.contentDirectorSteps.find(s => s.id === final.id).inputHash = "f".repeat(64);
