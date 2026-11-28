@@ -42,6 +42,8 @@ node scripts/bot-admin.mjs demo --port 4320
 
 示例取当日核查的 Flash 人民币高峰上限，费率单位为分。独立 Search API 的公开刊例为每千次成功查询 5 元，示例将单次预留向上取整至 1 分。宿主按配置预留费用，保存原始供应商编号与实际 token 用量。金额按配置费率换算，核销以原账单为准。其他合同按实际价表填值，保持委托币种一致。〔B〕 [DeepSeek 模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)
 
+需要给指定任务合计限量时，在 `taskProviderQuota` 或 `BOT_TASK_PROVIDER_QUOTA_FILE` 所指的独立 JSON 配置中设置 `taskIds`、`maxCalls`、`maxTotalTokens`、`maxOutputTokens`。最后一个值指定该组每次调用的输出上限。可选的 `sceneMaxOutputTokens` 把已登记的场景名映射到该组在该场景的输出上限。例如，完整文章初审用 `content.audit.article`，终审用 `quality.final`，签署决定用 `approval.decision`。服务逐笔按完整请求的输入上界和最终输出上限预留 token，完整回执按实结算。费用同时受已签委托约束。服务账户须能遍历配置文件的父目录并读取文件。启动后可在 `/healthz` 核对 `taskProviderQuotaFingerprint`。〔A〕 [配置读取](../src/bot/settings.mjs) · [准入与结算](../src/bot/provider-quota.mjs)
+
 管理员密码和模型凭据分别进入宿主凭据库。样例以 systemd 受控凭据为例。
 
 ```bash
@@ -195,6 +197,8 @@ JSON Feed 的同源条目可参与事实审核。需要接受单独的官方文�
 将试验来源配置为 `allowCadenceTrial=true`，再给一份没有必选交付的独立委托配置 `trustScope.learning`。设置 `sourceId`、`controlSourceId` 和 `minPairs`，两条来源都要列入委托。只有登记的一个试验来源可改变轮询频率。试验开始后等一周以获得实际受试发布的 T+7 样本。接下来两周分别与不变来源比较，两个窗口均需改善且单位支出未升高，才可延用新的频率一周。源头撤权、适用条件变化或有效样本不足时恢复原频率。
 
 ## 对账、续办和恢复
+
+私稿任务显示“部分完成”时，可打开任务详情查看原因。对于仍在授权期内、供应商已结算且原生独审范围已留存的截断返修，详情提供按原范围继续编辑的操作。服务在同一任务下登记新的准备步骤，保留原先失败的步骤及费用。编辑只处理已圈定的位置，然后对新稿执行完整初审、终审和批准。若额度不足、回执不完整或独立审核未通过，工作台保留实际结果。〔A〕 [任务控制](../src/bot/core.mjs) · [原始截断回执](../src/bot/draft-continuation.mjs)
 
 - 周报由云端账本的周期水位触发。主人连续离线时，服务按原周期继续冻结报告；服务停机跨过多个边界时，重启后逐期补齐。委托在周中到期时，最后一份报告截止到原到期时间，逾期未确认的必选成果保留在分母中。异机意图暂时不可用时，新一轮受理停在授权闸，系统继续保存和发送到期报告。通知包含 `reportId`、`mandateId` 和周期边界，同一份报告可在具备所有者权限的 `/api/bot/v1/mandates/<id>/outcomes` 读回。
 - 日常停发在工作台撤销委托。先行撤权拒绝新放行，已进入在途的动作继续按原键核对。费用账本保留预留、未知和已核计量结果。网络中断后先查原对象或供应商回执。

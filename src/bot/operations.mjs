@@ -381,7 +381,8 @@ async function prepare(core, operations, step, auth, task, mandate) {
   const result = await operations.native.prepareArticle({
     taskId: task.id, opportunity, claimIds: opportunity.facts.map(fact => fact.claimId),
     ...(mandate.workMode === 'draft_only' ? { privateDraft: true } : {}),
-    jobId: step.output?.jobId,
+    jobId: step.output?.jobId ?? step.draftContinuation?.jobId,
+    ...(step.draftContinuation ? { truncatedRevisionRetry: step.draftContinuation } : {}),
     onJob: async jobId => {
       await core.checkpoint({ id: step.id, epoch: step.epoch, output: { jobId } }, auth);
       step.output = { ...step.output, jobId };

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { CHANNEL_IDS, createBotCore, decideOpportunity } from '../src/bot/core.mjs';
 
@@ -117,11 +118,39 @@ test('persisted scheduler coalesces missed triggers and materializes the weekly 
     assert.equal(restarted.outcomes(mandate.id, owner).reports.length, 1);
     assert.equal(restarted.listNotifications(owner).length, 1);
     const [notice] = restarted.listNotifications(owner);
+    const { due, autonomous, missed } = restarted.outcomes(mandate.id, owner).reports[0].autonomy;
+    assert.equal(notice.summary, `本期有 ${due} 项承诺到期，按时自主交付 ${autonomous} 项，到期未达 ${missed} 项。`);
     const delivered = restarted.ackNotification({ id: notice.id, status: 'delivered', receiptRef: 'fixture-delivery' }, system);
     assert.equal(delivered.state, 'delivered');
     assert.equal(restarted.ackNotification(notice.id, {}, owner).state, 'read');
   } finally {
     restarted.close();
+  }
+});
+
+test('existing system weekly summaries read in Chinese without rewriting stored notices or owner-authored text', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'pengmanager-weekly-notices-'));
+  t.after(() => rmSync(folder, { recursive: true }));
+  const path = join(folder, 'bot.sqlite');
+  const { core, time } = instance(t, { dbPath: path });
+  const mandate = allow(core, { schedule: { reportStartsAt: NOW + DAY } });
+  time(NOW + DAY);
+  core.tick(system);
+  const [weekly] = core.listNotifications(owner);
+  assert.equal(weekly.kind, 'weekly_report');
+  const legacy = '12 items due, 3 missed, 8 delivered autonomously on time.';
+  const db = new DatabaseSync(path);
+  try {
+    db.prepare("UPDATE notifications SET data=json_set(data,'$.summary',?) WHERE id=?").run(legacy,weekly.id);
+    const authored = core.recordException({ mandateId: mandate.id, rootCause: 'weekly-report', severity: 'urgent',
+      summary: legacy }, owner);
+    const notices = core.listNotifications(owner);
+    assert.equal(notices.find(n => n.id === weekly.id).summary, '本期有 12 项承诺到期，按时自主交付 8 项，到期未达 3 项。');
+    assert.equal(notices.find(n => n.id === authored.id).summary, legacy);
+    assert.equal(core.ackNotification(weekly.id, {}, owner).summary, notices.find(n => n.id === weekly.id).summary);
+    assert.equal(db.prepare("SELECT json_extract(data,'$.summary') AS text FROM notifications WHERE id=?").get(weekly.id).text, legacy);
+  } finally {
+    db.close();
   }
 });
 

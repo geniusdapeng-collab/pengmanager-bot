@@ -151,6 +151,11 @@ const SCHEMA = `
     output TEXT, outcome_digest TEXT, UNIQUE (task_id, step_key)
   ) STRICT;
   CREATE INDEX IF NOT EXISTS steps_due ON steps(scope, state, kind, due_at);
+  CREATE TABLE IF NOT EXISTS draft_continuations (
+    task_id TEXT PRIMARY KEY REFERENCES tasks(id), source_step_id TEXT NOT NULL REFERENCES steps(id),
+    step_id TEXT NOT NULL UNIQUE REFERENCES steps(id), job_id TEXT NOT NULL, cost_id TEXT NOT NULL REFERENCES costs(id),
+    source_sha256 TEXT NOT NULL, scope_step_id TEXT NOT NULL, quota_fingerprint TEXT
+  ) STRICT;
   CREATE TABLE IF NOT EXISTS events (
     seq INTEGER PRIMARY KEY, scope TEXT NOT NULL, mandate_id TEXT, task_id TEXT, actor TEXT NOT NULL,
     at INTEGER NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL

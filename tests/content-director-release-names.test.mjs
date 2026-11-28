@@ -4,6 +4,7 @@ import { claimEditorialFingerprint, reviewedClaimSource } from "../src/domain/ed
 import { hashText } from "../src/domain/hash.mjs";
 import { genericProductNamingFindings, normalizeGeneratedTextContent, PRODUCT_NAMING_PROMPT } from "../src/domain/product-naming.mjs";
 import { ContentDirectorModel, reviewedReleaseProjectNames } from "../src/services/content-director-model.mjs";
+import { resolveScenePolicy } from "../src/model-routing/policy.mjs";
 
 function briefFor({ owner = "google", project = "Guetzli" } = {}) {
   const url = `https://github.com/${owner}/${project.toLowerCase()}/releases/tag/v1.0.1`;
@@ -14,6 +15,32 @@ function briefFor({ owner = "google", project = "Guetzli" } = {}) {
       claimSourceReview: { hash: hashText("independent receipt") } },
   }] };
 }
+
+test("compact edits and complete initial audits keep their scope, evidence and same model", async () => {
+  const requests = [];
+  const model = new ContentDirectorModel({ deepSeek: { async completeTask(request) {
+    requests.push(request);
+    return { value: {} };
+  } } });
+  const brief = briefFor({ owner: "demo", project: "Paperbird" });
+  const article = { title: "Full article", summary: "Original summary", sections: [{ key: "first", paragraphs: ["original"] }] };
+  await model.editRevisionBatch({ brief, entries: [{ text: "Original summary" }], privateSummaryScope: true });
+  await model.editRevisionBatch({ brief, entries: [{ text: "edited paragraph" }], privateSummaryScope: false });
+  await model.planBoundedRevision({ brief, article });
+  await model.auditArticle({ brief, article });
+  await model.finalAuditArticle({ brief, article });
+  assert.deepEqual(requests.map(r => r.scene), ["content.repair.copyedit", "content.repair.copyedit",
+    "content.audit", "content.audit.article", "quality.final"]);
+  assert.match(requests[0].messages[0].content, /in the article summary.*Paperbird/);
+  assert.doesNotMatch(requests[1].messages[0].content, /in the article summary.*Paperbird/);
+  assert.equal(Object.hasOwn(JSON.parse(requests[0].messages[1].content), "article"), false);
+  for (const request of requests.slice(2)) {
+    assert.ok(JSON.parse(request.messages[1].content).article.sections[0].paragraphs.includes("original"));
+  }
+  const policies = requests.map(r => resolveScenePolicy(r.scene));
+  assert.deepEqual(policies.map(p => p.thinking.effort), ["low", "low", "high", "high", "high"]);
+  assert.equal(new Set(policies.map(p => p.modelKey)).size, 1);
+});
 
 test("a reviewed public release and an explicit topic allow its exact project in the summary", async () => {
   const brief = briefFor();

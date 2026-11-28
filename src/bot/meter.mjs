@@ -4,7 +4,7 @@ import { digest, privateDirectory, putRecord, readRecord } from "./files.mjs";
 import { BotError, fail, hash } from "./core-store.mjs";
 import { ModelAdmissionError, ModelQuotaReceiptError } from "../model-routing/errors.mjs";
 import { TEXT_PRIMARY_MODEL } from "../model-routing/registry.mjs";
-import { admitProviderQuota, quotaReservation, taskProviderQuota } from "./provider-quota.mjs";
+import { admitProviderQuota, quotaReservation, sceneOutputCap, taskProviderQuota } from "./provider-quota.mjs";
 
 const MAX_PROVIDER_BYTES = 3_000_000;
 
@@ -25,6 +25,7 @@ async function boundedBody(response) {
 export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl = fetch, taskQuota }) {
   const active = new AsyncLocalStorage();
   const quota = taskProviderQuota(taskQuota);
+  const quotaFingerprint = quota ? digest(JSON.stringify(quota)) : undefined;
   const scoped = () => quota?.taskIds.includes(active.getStore()?.step.taskId);
   const receipts = privateDirectory(join(dataDir, "provider-receipts"));
   const base = new URL(endpoint);
@@ -55,11 +56,10 @@ export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl 
   }
   return {
     ready: Boolean(priceReady) && mode === "real",
-    quotaFingerprint: quota ? digest(JSON.stringify({ taskIds: [...quota.taskIds].sort(),
-      maxCalls: quota.maxCalls, maxTotalTokens: quota.maxTotalTokens, maxOutputTokens: quota.maxOutputTokens })) : undefined,
-    maxOutputTokens: () => scoped() ? quota.maxOutputTokens : undefined,
+    quotaFingerprint,
+    maxOutputTokens: scene => scoped() ? sceneOutputCap(quota, scene) : undefined,
     run: (step, auth, work) => active.run({ step, auth }, work),
-    async fetch(url, options = {}) {
+    async fetch(url, options = {}, dispatch) {
       const ctx = active.getStore();
       if (mode !== "real" || !ctx || !priceReady) fail(409, "MODEL_COST_AUTHORIZATION_REQUIRED", "Set a priced provider profile and lease an authorized BOT task.");
       const dest = new URL(url);
@@ -80,16 +80,33 @@ export function createMeter({ core, dataDir, pricing, endpoint, mode, fetchImpl 
       const reserve = isSearch ? pricing.searchPerRequest : Math.max(1, minor(
         tokenCost(TEXT_PRIMARY_MODEL.contextTokens, pricing.inputPerMillion) + tokenCost(maximum, pricing.outputPerMillion)));
       const { step, auth } = ctx;
-      const hold = scoped() ? await quotaReservation(quota, { body, isSearch }) : undefined;
+      // The dispatcher supplies local metadata separately from the provider's HTTP headers and body.
+      const wireSha256 = digest(options.body);
+      if (scoped() && dispatch && dispatch.wireSha256 !== wireSha256) {
+        throw new ModelAdmissionError(new BotError(409, "BUDGET_EXCEEDED", "The final request differs from its prepared scene."));
+      }
+      const hold = scoped() ? await quotaReservation(quota, { body, isSearch, scene: dispatch?.scene, wireSha256 }) : undefined;
       const usageCheckMaximum = hold ? TEXT_PRIMARY_MODEL.maxOutputTokens : maximum;
       // A tariff change conflicts with an existing request reservation. It
       // cannot mint a new dispatch key for the same provider operation.
-      const requestKey = hash([step.id, dest.href, digest(options.body)]);
+      const requestKey = hash([step.id, dest.href, wireSha256]);
+      const continuation = step.draftContinuation;
+      const priorKey = continuation && hash([continuation.sourceStepId, dest.href, wireSha256]);
+      if (continuation && (continuation.quotaFingerprint ?? null) !== (scoped() ? quotaFingerprint : null)) {
+        throw new ModelAdmissionError(new BotError(409, "DRAFT_CONTINUATION_QUOTA_CHANGED", "The continued draft's approved provider quota changed."));
+      }
+      const admit = (quota || continuation) ? row => {
+        if (continuation && row.rowsForTasks([step.taskId]).some(previous => previous.stepId === continuation.sourceStepId &&
+            previous.requestKey === priorKey && (previous.dispatchedAt || previous.state === "settled"))) {
+          throw new ModelAdmissionError(new BotError(409, "DRAFT_CONTINUATION_INPUT_REPEATED", "A new edit cannot resend an already dispatched source-step request."));
+        }
+        return quota ? admitProviderQuota(quota, hold, row, receipts) : undefined;
+      } : undefined;
       let cost;
       try {
         cost = core.reserveCost({ id: step.id, epoch: step.epoch, requestKey, currency: pricing.currency,
           reservedMinor: reserve, provider: dest.origin, requestHash: tariffHash }, auth,
-        quota ? row => admitProviderQuota(quota, hold, row, receipts) : undefined);
+        admit);
       } catch (error) {
         if (error instanceof BotError && error.code === "BUDGET_EXCEEDED") throw new ModelAdmissionError(error);
         throw error;

@@ -43,6 +43,28 @@ export function validateRevisionPlan(plan, article, requested) {
   return { paragraphs: plan.paragraphs.map(({sectionKey, paragraph}) => ({sectionKey, paragraph})), summary: plan.summary, reason: plan.reason.trim() };
 }
 
+// Reserve separate work for the signed summary and keep each copy edit small.
+// The original article remains the source for assembly and whole-article review.
+export function revisionBatches(plan) {
+  const size = Math.max(1, Math.ceil(plan.paragraphs.length / 8));
+  if (size > 2) invalid("原独审范围超出一次有界续办可处理的段落数。");
+  const batches = plan.summary ? [{ paragraphs: [], summary: true }] : [];
+  for (let i = 0; i < plan.paragraphs.length; i += size) {
+    batches.push({ paragraphs: plan.paragraphs.slice(i, i + size), summary: false });
+  }
+  return batches;
+}
+
+export function compactRevisionPatch(batch, value) {
+  const count = batch.summary ? 1 : batch.paragraphs.length;
+  if (!value || Object.keys(value).length !== 1 || !Array.isArray(value.texts) ||
+      value.texts.length !== count || value.texts.some(text => typeof text !== "string" || !text.trim())) {
+    invalid("每个获准位置必须返回且只返回一段替换文字。");
+  }
+  if (batch.summary) return { summary: value.texts[0], edits: [] };
+  return { edits: batch.paragraphs.map((position, i) => ({ ...position, text: value.texts[i] })) };
+}
+
 export function applyPrivateArticleRevision(article, plan, patch, claimIds, sourceNames) {
   if (!patch || !Array.isArray(patch.edits) || Object.keys(patch).some(k => !["edits","summary"].includes(k))) {
     invalid("返修结果只能包含定点段落或已获准的摘要。");

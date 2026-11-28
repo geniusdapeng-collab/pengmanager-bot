@@ -6,6 +6,7 @@ import {
 import {
   basePlan, capabilityBinding, capabilityKey, channelsOf, decideOpportunity, normalizeMandate, normalizePlan,
 } from './core-plans.mjs';
+import { DRAFT_CONTINUATION_ACTION, DRAFT_CONTINUATION_KEY, isSettledTruncatedResponse } from "./draft-continuation.mjs";
 import { createEffectService } from './core-effects.mjs';
 
 export { BotError } from './core-store.mjs';
@@ -41,7 +42,7 @@ const QUEUE_AGE_MS = 60 * 60_000;
 const QUEUE_DEADLINE_MS = 4 * 60 * 60_000;
 
 export function createBotCore({
-  dbPath = ':memory:', clock = Date.now, mode = 'fixture', channels, journal = null, recoveryMode = false, geoPreflight,
+  dbPath = ':memory:', clock = Date.now, mode = 'fixture', channels, journal = null, recoveryMode = false, geoPreflight, readProviderReceipt, providerQuotaFingerprint, readTruncatedRevision,
 } = {}) {
   if (typeof clock !== 'function') fail(422, 'INVALID_CLOCK', 'A synchronous clock function is required.');
   modeOf(mode);
@@ -81,7 +82,10 @@ export function createBotCore({
   }
 
   function stepView(row, task) {
+    const link = row.step_key === DRAFT_CONTINUATION_KEY && get('SELECT * FROM draft_continuations WHERE step_id = ?', row.id);
     return {
+      ...(link ? { draftContinuation: { sourceStepId: link.source_step_id, jobId: link.job_id, costId: link.cost_id,
+        sourceSha256: link.source_sha256, scopeStepId: link.scope_step_id, quotaFingerprint: link.quota_fingerprint } } : {}),
       id: row.id, taskId: row.task_id, mandateId: task.mandate_id, key: row.step_key, kind: row.kind,
       state: row.state, status: row.state, dueAt: row.due_at, epoch: row.epoch, leaseUntil: row.lease_until,
       actorId: row.holder, input: parse(row.input), output: row.output === null ? null : parse(row.output), dataMode: mode,
@@ -101,6 +105,10 @@ export function createBotCore({
     };
     if (row.state === 'waiting_input') {
       view.canResume = Boolean(get("SELECT id FROM steps WHERE task_id = ? AND state = 'waiting_input' LIMIT 1", row.id));
+    }
+    if (row.state === 'partial') {
+      const mandate = get('SELECT * FROM mandates WHERE id = ?', row.mandate_id);
+      view.canRetryTruncatedDraft = Boolean(draftContinuationSource(row, mandate));
     }
     if (!detailed) return view;
     const channels = planView(row.id);
@@ -357,10 +365,11 @@ export function createBotCore({
     if (entry?.digest) run('INSERT OR IGNORE INTO recovered_journal(scope, key, digest) VALUES (?, ?, ?)', entry.scope, entry.key, entry.digest);
   }
 
-  function addStep(task, input, at = now()) {
+  function addStep(task, input, at = now(), ownerContinuation = false) {
     const kind = identifier(input.kind, 'kind');
     if (!STEP_ROLES[kind]) fail(422, 'UNKNOWN_WORK_KIND', 'The worker kind is not registered.', { kind });
     const stepKey = identifier(input.key ?? kind, 'stepKey');
+    if (stepKey === DRAFT_CONTINUATION_KEY && !ownerContinuation) fail(409, 'OWNER_DRAFT_CONTINUATION_REQUIRED', 'The owner must authorize continuation of a truncated draft.');
     const payload = json(object(input.input ?? {}, 'step input'));
     const dueAt = input.dueAt === undefined ? at : instant(input.dueAt, 'dueAt');
     const prior = get('SELECT * FROM steps WHERE task_id = ? AND step_key = ?', task.id, stepKey);
@@ -537,7 +546,10 @@ export function createBotCore({
 
   function projectTask(task, ctx) {
     if (!USABLE_TASK_STATES.includes(task.state)) return task;
-    const states = all('SELECT state FROM steps WHERE task_id = ?', task.id).map(item => item.state);
+    const states = all(`SELECT s.state FROM steps s WHERE s.task_id = ? AND NOT EXISTS (
+      SELECT 1 FROM draft_continuations c JOIN steps successor ON successor.id = c.step_id
+      WHERE c.task_id = s.task_id AND c.source_step_id = s.id AND s.state = 'failed' AND successor.state = 'succeeded'
+    )`, task.id).map(item => item.state);
     const uncertain = Boolean(get("SELECT operation_key FROM effects WHERE task_id = ? AND state IN ('in_flight', 'unknown', 'accepted')", task.id)) ||
       Boolean(get("SELECT id FROM costs WHERE task_id = ? AND state = 'unknown'", task.id));
     let state;
@@ -808,6 +820,15 @@ export function createBotCore({
       const status = input.status ?? 'succeeded';
       if (!recognized.includes(status)) fail(422, 'INVALID_STEP_STATUS', 'Worker result is outside the state machine.');
       const followups = objects(input.followups ?? [], 'followups', MAX_FOLLOWUPS);
+      if (step.step_key === DRAFT_CONTINUATION_KEY) {
+        const link = get('SELECT job_id FROM draft_continuations WHERE step_id = ?', step.id);
+        const draft = input.output?.privateWork;
+        if (!link || followups.length || (status === 'succeeded' && (input.output?.jobId !== link.job_id ||
+            !/^[a-f0-9]{64}$/.test(input.output?.contentHash ?? '') || draft?.kind !== 'draft' ||
+            draft.state !== 'prepared' || !draft.title?.trim() || !draft.body?.trim()))) {
+          fail(409, 'DRAFT_CONTINUATION_RESULT_INVALID', 'A continued private draft must return the approved original native job and private article.');
+        }
+      }
       if (followups.length && status !== 'succeeded') fail(422, 'FOLLOWUPS_REQUIRE_SUCCESS', 'Continuation requires the current step to succeed.');
       if (input.channelPlan !== undefined) {
         if (step.kind !== 'discover' && step.kind !== 'research') fail(403, 'PLAN_WRITER_REQUIRED', 'Only discovery or research may update the plan.');
@@ -857,6 +878,53 @@ export function createBotCore({
     return result;
   }
 
+  function draftContinuationSource(task, mandate, reportReceiptError = false) {
+    if (typeof readProviderReceipt !== 'function' || restoring || task.state !== 'partial' ||
+        mandate.state !== 'active' || mandate.version !== task.mandate_version ||
+        (mandate.expires_at !== null && mandate.expires_at <= now()) || (task.deadline_at !== null && task.deadline_at <= now()) ||
+        parse(mandate.config).workMode !== 'draft_only' || parse(task.commitments).length ||
+        get('SELECT task_id FROM draft_continuations WHERE task_id = ?', task.id)) return null;
+    const steps = all('SELECT * FROM steps WHERE task_id = ? ORDER BY rowid', task.id);
+    const failed = steps.find(s => s.kind === 'prepare' && s.step_key === 'private-draft' && s.state === 'failed');
+    if (steps.length !== 2 || !steps.some(s => s.kind === 'discover' && s.state === 'succeeded') || !failed ||
+        get('SELECT operation_key FROM effects WHERE task_id = ? LIMIT 1', task.id)) return null;
+    const output = parse(failed.output ?? '{}');
+    const input = parse(failed.input);
+    if (output.code !== 'MODEL_OUTPUT_TRUNCATED' || !/^CDJ-[0-9a-f]{20}$/.test(output.jobId ?? '') ||
+        !Array.isArray(input.channelIds) || input.channelIds.length || !input.opportunity?.facts?.length) return null;
+    const target = readTruncatedRevision?.(output.jobId);
+    if (!target) return null;
+    if (get(`SELECT id FROM costs WHERE task_id = ? AND (state NOT IN ('settled','released') OR
+        (state = 'released' AND json_extract(data, '$.dispatchedAt') IS NOT NULL)) LIMIT 1`, task.id)) return null;
+    const budget = effects.budgetView(mandate, now());
+    if (budget.reservedMinor || budget.unknownMinor || budget.availableMinor <= 0 || budget.currencyConflict) return null;
+    const cost = get("SELECT * FROM costs WHERE step_id = ? AND state = 'settled' ORDER BY rowid DESC LIMIT 1", failed.id);
+    if (!cost || cost.task_id !== task.id) return null;
+    try {
+      if (!isSettledTruncatedResponse(cost, readProviderReceipt(cost.id))) return null;
+    } catch (error) {
+      if (reportReceiptError) fail(409, 'DRAFT_CONTINUATION_RECEIPT_UNAVAILABLE', 'The original provider evidence could not be verified.');
+      return null;
+    }
+    const quotaFingerprint = providerQuotaFingerprint?.(task.id) ?? null;
+    if (parse(cost.data).providerTokenHold && !quotaFingerprint) return null;
+    return { failed, cost, jobId: output.jobId, quotaFingerprint, target };
+  }
+
+  function applyDraftContinuation(task, link, ctx, at) {
+    if (get('SELECT step_id FROM draft_continuations WHERE task_id = ?', task.id)) return;
+    const prior = get("SELECT * FROM steps WHERE id = ? AND task_id = ? AND kind = 'prepare' AND state = 'failed'", link.sourceStepId, task.id);
+    const cost = get("SELECT id FROM costs WHERE id = ? AND step_id = ? AND state = 'settled'", link.costId, link.sourceStepId);
+    if (!prior || !cost || parse(prior.output ?? '{}').jobId !== link.jobId || parse(prior.output ?? '{}').code !== 'MODEL_OUTPUT_TRUNCATED') {
+      fail(409, 'DRAFT_CONTINUATION_HISTORY_REQUIRED', 'Restore the original failed step and its settled provider evidence first.');
+    }
+    const child = addStep(task, { kind: 'prepare', key: DRAFT_CONTINUATION_KEY, restoreId: link.stepId, input: parse(prior.input) }, at, true);
+    run('INSERT INTO draft_continuations(task_id,source_step_id,step_id,job_id,cost_id,source_sha256,scope_step_id,quota_fingerprint) VALUES (?,?,?,?,?,?,?,?)',
+      task.id, prior.id, child.id, link.jobId, link.costId, link.sourceSha256, link.scopeStepId, link.quotaFingerprint);
+    pushEvent(ctx, 'task.truncated_draft_continued', link, task, task.mandate_id, at);
+    projectTask(task, ctx);
+  }
+
   function controlTask(id, input, auth) {
     const ctx = identity(auth, ['owner']);
     object(input, 'task control');
@@ -865,8 +933,19 @@ export function createBotCore({
       const mandate = mandateRow(task.mandate_id, ctx, true);
       assertRevision(task, input);
       const at = now();
-      let action;
-      if (input.action === 'resume') {
+      let action, continuation;
+      if (input.action === DRAFT_CONTINUATION_ACTION) {
+        assertOperational();
+        assertActive(mandate);
+        assertNoPendingRevocation(ctx);
+        const source = draftContinuationSource(task, mandate, true);
+        if (!source) {
+          fail(409, 'DRAFT_CONTINUATION_UNAVAILABLE', 'A settled truncated private revision of the original job is required.');
+        }
+        continuation = { sourceStepId: source.failed.id, jobId: source.jobId, costId: source.cost.id, ...source.target,
+          stepId: 'step-' + hash([ctx.scope, task.id, DRAFT_CONTINUATION_KEY]).slice(0, 42), quotaFingerprint: source.quotaFingerprint };
+        action = input.action;
+      } else if (input.action === 'resume') {
         assertOperational();
         assertActive(mandate);
         if (!['paused', 'waiting_input'].includes(task.state)) fail(409, 'INVALID_TASK_TRANSITION', 'Only paused work or a step awaiting material may resume.');
@@ -883,21 +962,22 @@ export function createBotCore({
         fail(422, 'INVALID_TASK_CONTROL', 'Use pause, resume, or cancel.');
       }
       const journalKey = `task-control:${hash([ctx.scope, task.id, input.idempotencyKey])}`;
-      const data = { taskId: task.id, action, controlVersion: task.version + 1, authorizedBy: ctx.actorId, requestHash: hash(input) };
+      const data = { taskId: task.id, action, ...(continuation ? { continuation } : {}), controlVersion: task.version + 1, authorizedBy: ctx.actorId, requestHash: hash(input) };
       try {
         const entry = durable(ctx, journalKey, 'task_control', data, at);
         rememberReplayEntry(entry);
       } catch (error) {
-        if (mode !== 'real' || error.status !== 503 || action === 'resume') throw error;
+        if (mode !== 'real' || error.status !== 503 || action === 'resume' || continuation) throw error;
         run('INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)', `pending_control:${journalKey}`,
           json({ scope: ctx.scope, key: journalKey, data, at }));
       }
-      applyTaskControl(task, action, ctx, at);
+      applyTaskControl(task, action, ctx, at, continuation);
       return taskView(taskRow(id, ctx), true);
     }));
   }
 
-  function applyTaskControl(task, action, ctx, at) {
+  function applyTaskControl(task, action, ctx, at, continuation) {
+    if (action === DRAFT_CONTINUATION_ACTION) return applyDraftContinuation(task, continuation, ctx, at);
     if (action !== 'resume') {
       cancelLeases(task, ctx, at, action === 'pause' ? 'paused' : 'cancelled');
       return;
@@ -947,8 +1027,17 @@ export function createBotCore({
     return notificationView(get('SELECT * FROM notifications WHERE id = ?', id));
   }
 
+  function weeklyNoticeSummary(due, missed, autonomous) {
+    return `本期有 ${due} 项承诺到期，按时自主交付 ${autonomous} 项，到期未达 ${missed} 项。`;
+  }
+
   function notificationView(row) {
-    return { ...parse(row.data), id: row.id, notificationId: row.id, mandateId: row.mandate_id, state: row.state,
+    const data = parse(row.data);
+    if (data.kind === 'weekly_report' && data.rootCause === 'weekly-report' && data.reportId) {
+      const legacy = /^(\d+) items due, (\d+) missed, (\d+) delivered autonomously on time\.$/.exec(data.summary);
+      if (legacy) data.summary = weeklyNoticeSummary(legacy[1], legacy[2], legacy[3]);
+    }
+    return { ...data, id: row.id, notificationId: row.id, mandateId: row.mandate_id, state: row.state,
       createdAt: row.created_at, dataMode: mode };
   }
 
@@ -1115,7 +1204,7 @@ export function createBotCore({
     if (Number(inserted.changes) > 0) {
       enqueueNotification(mandate, ctx, 'weekly-report', periodEnd, { reportId: id, kind: 'weekly_report', periodStart,
         periodEnd, terminalReason,
-        summary: `${summary.autonomy.due} items due, ${summary.autonomy.missed} missed, ${summary.autonomy.autonomous} delivered autonomously on time.`,
+        summary: weeklyNoticeSummary(summary.autonomy.due, summary.autonomy.missed, summary.autonomy.autonomous),
         dataMode: mode, taskIds: [] }, at);
       pushEvent(ctx, 'report.weekly_created', { reportId: id, periodEnd, terminalReason, counts: summary.counts }, null, mandate.id, at);
     }
@@ -1216,7 +1305,7 @@ export function createBotCore({
         }
         if (entry.kind === 'mandate') insertMandate(entry.data.row);
         else if (entry.kind === 'task') insertTask(entry.data.row, entry.data.step);
-        else if (entry.kind === 'task_control') applyTaskControl(taskRow(entry.data.taskId, ctx), entry.data.action, ctx, entry.at);
+        else if (entry.kind === 'task_control') applyTaskControl(taskRow(entry.data.taskId, ctx), entry.data.action, ctx, entry.at, entry.data.continuation);
         else effects.restoreEffectEntry(ctx, entry);
         rememberReplayEntry(entry);
         exported += 1;
