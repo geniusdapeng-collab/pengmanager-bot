@@ -228,6 +228,38 @@ function articleIllustrationHandoff(article, locale) {
     sourceHash: articleIllustrationSourceHash({ ...article, locale }), ...suggestArticleIllustrations(article) };
 }
 
+// Both the editor and the read-only preview bind each patch to this exact request.
+function revisionBatchRequest(article, brief, batches, index, overTarget) {
+  const batch = batches[index];
+  const sectionFor = target => article.sections.find(s => s.key === target.sectionKey);
+  const textFor = target => sectionFor(target).paragraphs[target.paragraph - 1];
+  const lengthOf = text => text.replace(/\s/gu, "").length;
+  const remainingLength = batches.slice(index).flatMap(b => b.paragraphs)
+    .reduce((total, target) => total + lengthOf(textFor(target)), 0);
+  const entries = batch.summary ? [{ text: article.summary }] : batch.paragraphs.map(target => {
+    const text = textFor(target);
+    const length = lengthOf(text);
+    return { ...target, sectionTitle: sectionFor(target).title, text,
+      targetCharacters: Math.max(1, length - Math.ceil(overTarget * length / remainingLength)) };
+  });
+  const citedIds = [...new Set(batch.paragraphs.flatMap(t => sectionFor(t).claimIds))];
+  const claimIds = citedIds.length ? citedIds : brief.claimIds;
+  return { brief: { topic: brief.topic, language: brief.language, claimIds,
+    claims: brief.claims.filter(c => claimIds.includes(c.id)), mustKeep: brief.mustKeep, mustAvoid: brief.mustAvoid },
+    title: article.title, entries, privateSummaryScope: batch.summary };
+}
+
+function requireRevisionPreview(valid) {
+  if (!valid) fail(409, "ARTICLE_REVISION_PREVIEW_UNAVAILABLE", "缺少同一私稿、定点返修及独立初终审的完整记录。");
+}
+
+function completedModelStep(step, scene) {
+  const receipt = step?.receipt;
+  return step?.status === "succeeded" && receipt?.policy?.scene === scene && receipt.finishReason === "stop" &&
+    typeof receipt.responseId === "string" && receipt.responseId.length > 0 && SHA256.test(receipt.responseHash ?? "") &&
+    receipt.requestedModel && receipt.returnedModel === receipt.requestedModel;
+}
+
 function upsertMissing(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -929,6 +961,96 @@ export class ContentDirectorService {
       reports: state.contentAuditReports.filter(report => report.jobId === id).sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)),
       result,
     };
+  }
+
+  // Reconstruct only the revision that already reached independent review. This read
+  // path has no worker, model, store mutation, freeze, or approval operation.
+  async readReviewedRevisionPreview(id, { sourceSha256, scopeStepId } = {}) {
+    const job = await this.getJob(id);
+    const scope = privateArticleRevisionScope(job);
+    const continuation = job.truncatedRevision;
+    requireRevisionPreview(scope && job.status === "failed" && job.currentStep === "quality.final" &&
+      job.error?.code === "MODEL_OUTPUT_TRUNCATED" && !job.error.unknown && !job.pauseRequested &&
+      continuation && SHA256.test(sourceSha256 ?? "") && sourceSha256 === job.resultRef.sha256 &&
+      continuation.source === sourceSha256 && job.boundedRevisionSource === sourceSha256 &&
+      continuation.scopeId === scopeStepId && articleHash(job.result.article) === job.resultHash);
+    const scopeStep = job.steps.find(step => step.id === scopeStepId && step.kind === "repair.scope");
+    requireRevisionPreview(completedModelStep(scopeStep, "content.audit") &&
+      scopeStep.key === `bounded:${sourceSha256}:${scopeStep.inputHash}` &&
+      hashObject(scopeStep.output) === continuation.scopeHash);
+    const priorEdit = job.steps.find(step => step.id === continuation.failedEditId);
+    requireRevisionPreview(priorEdit?.kind === "article.repair" && priorEdit.status === "failed" &&
+      priorEdit.error?.code === "MODEL_OUTPUT_TRUNCATED" && priorEdit.key === scopeStep.key + ":edit:" + priorEdit.inputHash);
+
+    const stored = async ref => {
+      requireRevisionPreview(ref?.name && SHA256.test(ref.sha256 ?? ""));
+      const file = await this.readArtifact(id, ref.name);
+      requireRevisionPreview(file.sha256 === ref.sha256 && file.bytes.length === ref.bytes);
+      return JSON.parse(file.bytes.toString("utf8"));
+    };
+    requireRevisionPreview(job.artifacts.some(ref => ref.name === job.resultRef.name && ref.bytes === job.resultRef.bytes && ref.sha256 === sourceSha256));
+    const briefStep = job.steps.find(step => step.kind === "brief.compile" && step.status === "succeeded");
+    const brief = await stored(briefStep?.artifact);
+    requireRevisionPreview(hashObject(brief) === briefStep.inputHash && hashObject(brief.claims) === hashObject(job.result.research.claims));
+    const prior = job.reports.find(report => report.phase === "quality.final" && report.contentHash === job.resultHash &&
+      hashObject(report.findings) === hashObject(job.result.findings));
+    requireRevisionPreview(prior);
+    let article = job.result.article;
+    const measured = measureArticleLength(article, brief.targetLength);
+    const targetCharacters = Math.max(measured.minCharacters, Math.floor(measured.maxCharacters * 0.93));
+    const requested = { shorten: scope.length && measured.characters > measured.maxCharacters, summary: scope.summary };
+    const input = { brief, article, measuredLength: measured, targetCharacters, requested, findings: scope.findings,
+      previousFinalReportHash: prior.reportHash, privateSummaryScope: scope.summary };
+    const plan = validateRevisionPlan(scopeStep.output, article, requested);
+    requireRevisionPreview(hashObject(input) === scopeStep.inputHash &&
+      hashObject({ ...input, plan, privateSummaryScope: plan.summary }) === priorEdit.inputHash);
+    const batches = revisionBatches(plan);
+    const names = reviewedReleaseProjectNames(brief);
+    const claims = new Set(brief.claimIds);
+    const recorded = job.steps.filter(step => step.kind === "article.repair" && step.key.startsWith(scopeStep.key + ":batch:"));
+    const receipts = new Set([scopeStep.receipt.responseId]);
+    let editedBatches = 0;
+    for (const [index, batch] of batches.entries()) {
+      const overTarget = measureArticleLength(article, brief.targetLength).characters - targetCharacters;
+      if (!batch.summary && overTarget <= 0) break;
+      const requestHash = hashObject(revisionBatchRequest(article, brief, batches, index, overTarget));
+      const step = recorded.find(row => row.key === `${scopeStep.key}:batch:${index}:${requestHash}`);
+      requireRevisionPreview(completedModelStep(step, "content.repair.copyedit") && step.inputHash === requestHash &&
+        step.receipt.requestedModel === scopeStep.receipt.requestedModel && !receipts.has(step.receipt.responseId) &&
+        step.output?.scopeId === scopeStepId && step.output.beforeHash === articleHash(article) && hashObject(step.output.batch) === hashObject(batch));
+      const patch = await stored(step.artifact);
+      article = applyPrivateArticleRevision(article, batch, patch, claims, names);
+      requireRevisionPreview(articleHash(article) === step.output.afterHash);
+      receipts.add(step.receipt.responseId);
+      editedBatches++;
+    }
+    requireRevisionPreview(editedBatches > 0 && editedBatches === recorded.length);
+    const contentHash = articleHash(article);
+    const auditKey = contentHash + ":round-3:";
+    const auditHash = hashObject({ article, brief, research: job.result.research, visuals: [] });
+    const reviewStep = job.steps.find(step => step.kind === "quality.review" && step.key === auditKey + "review");
+    const finalStep = job.steps.find(step => step.kind === "quality.final" && step.key === auditKey + "final");
+    requireRevisionPreview(completedModelStep(reviewStep, "content.audit.article") && reviewStep.inputHash === auditHash &&
+      reviewStep.receipt.requestedModel === scopeStep.receipt.requestedModel && !receipts.has(reviewStep.receipt.responseId) &&
+      finalStep?.inputHash === auditHash && finalStep.status === "failed" && finalStep.error?.code === "MODEL_OUTPUT_TRUNCATED" &&
+      !finalStep.error.unknown && !job.reports.some(report => report.phase === "quality.final" && report.contentHash === contentHash));
+    const report = await stored(reviewStep.artifact);
+    const { reportHash, ...reportData } = report;
+    const measuredLength = measureArticleLength(article, brief.targetLength);
+    requireRevisionPreview(reportHash === hashObject(reportData) && reportHash === reviewStep.output?.reportHash &&
+      report.jobId === id && report.contentHash === contentHash && report.phase === "quality.review" && report.repairRound === 3 &&
+      hashObject(report.measuredLength) === hashObject(measuredLength) && hashObject(report.modelReceipt) === hashObject(reviewStep.receipt) &&
+      job.reports.some(row => row.reportHash === reportHash && hashObject(row) === hashObject(report)));
+    const firstReview = { reportHash, minor: 0, major: 0, blocker: 0, suggestion: 0 };
+    for (const { severity } of report.findings) {
+      requireRevisionPreview(["minor", "major", "blocker", "suggestion"].includes(severity));
+      firstReview[severity]++;
+    }
+    const current = await this.#assertLive(id);
+    requireRevisionPreview(current.revision === job.revision && current.status === job.status);
+    return { jobId: id, stage: finalStep.kind, code: finalStep.error.code, approved: false, contentHash,
+      title: article.title, summary: article.summary, body: article.body, characters: measuredLength.characters, editedBatches,
+      firstReview, reviewResponseId: reviewStep.receipt.responseId };
   }
 
   getSteps(id) {
@@ -1726,8 +1848,10 @@ export class ContentDirectorService {
     if (!job) fail(404, "CONTENT_JOB_NOT_FOUND", "找不到内容 Job。");
     const artifact = job.artifacts.find(row => row.name === name);
     if (!artifact) fail(404, "CONTENT_ARTIFACT_NOT_FOUND", "找不到任务附件。");
-    const root = await this.#ensureArtifactRoot();
+    const root = await this.#ensureArtifactRoot(false);
     const directory = join(root, job.id);
+    const directoryInfo = await lstat(directory);
+    if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) fail(409, "CONTENT_ARTIFACT_CHANGED", "任务附件目录已变化。");
     const file = join(directory, name);
     const info = await lstat(file);
     if (!info.isFile() || info.isSymbolicLink() || info.size !== artifact.bytes) {
@@ -2446,22 +2570,7 @@ export class ContentDirectorService {
       await this.#assertLive(job.id);
       const overTarget = measureArticleLength(article, brief.targetLength).characters - targetCharacters;
       if (!batch.summary && overTarget <= 0) break;
-      const sectionFor = target => article.sections.find(s => s.key === target.sectionKey);
-      const textFor = target => sectionFor(target).paragraphs[target.paragraph - 1];
-      const lengthOf = text => text.replace(/\s/gu, "").length;
-      const remainingLength = batches.slice(index).flatMap(b => b.paragraphs)
-        .reduce((total, target) => total + lengthOf(textFor(target)), 0);
-      const entries = batch.summary ? [{ text: article.summary }] : batch.paragraphs.map(target => {
-        const text = textFor(target);
-        const length = lengthOf(text);
-        return { ...target, sectionTitle: sectionFor(target).title, text,
-          targetCharacters: Math.max(1, length - Math.ceil(overTarget * length / remainingLength)) };
-      });
-      const citedIds = [...new Set(batch.paragraphs.flatMap(t => sectionFor(t).claimIds))];
-      const claimIds = citedIds.length ? citedIds : brief.claimIds;
-      const request = { brief: { topic: brief.topic, language: brief.language, claimIds,
-        claims: brief.claims.filter(c => claimIds.includes(c.id)), mustKeep: brief.mustKeep, mustAvoid: brief.mustAvoid },
-        title: article.title, entries, privateSummaryScope: batch.summary };
+      const request = revisionBatchRequest(article, brief, batches, index, overTarget);
       const beforeHash = articleHash(article);
       const editKey = `${key}:batch:${index}:${hashObject(request)}`;
       let step = job.steps.find(s => s.kind === "article.repair" && s.key === editKey);
@@ -2940,9 +3049,9 @@ export class ContentDirectorService {
     };
   }
 
-  async #ensureArtifactRoot() {
+  async #ensureArtifactRoot(create = true) {
     if (this.#artifactRootReal) return this.#artifactRootReal;
-    await mkdir(this.#artifactRoot, { recursive: true, mode: 0o700 });
+    if (create) await mkdir(this.#artifactRoot, { recursive: true, mode: 0o700 });
     const info = await lstat(this.#artifactRoot);
     if (!info.isDirectory() || info.isSymbolicLink()) fail(500, "CONTENT_ARTIFACT_ROOT_INVALID", "内容附件根目录不安全。");
     this.#artifactRootReal = await realpath(this.#artifactRoot);

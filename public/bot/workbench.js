@@ -749,7 +749,33 @@ function continueTruncatedDraft(task, detail = false) {
   });
 }
 
+function reviewedRevision(task) {
+  const article = node("div", { class: "stack", "aria-live": "polite" });
+  const opener = button("打开私有修订稿", async () => {
+    const value = await http(`/tasks/${encodeURIComponent(task.id)}/revision-preview`);
+    if (!article.isConnected) return;
+    const counts = value.firstReview;
+    const results = [[counts.blocker, "项阻断"], [counts.major, "项严重"], [counts.minor, "项轻微"], [counts.suggestion, "项建议"]]
+      .filter(([count]) => count > 0).map(([count, name]) => count + name).join("、") || "未记录问题";
+    const close = button("收起修订稿", () => {
+      article.replaceChildren();
+      opener.hidden = false;
+      opener.focus();
+    });
+    const title = node("h3", { tabindex: -1 }, value.title);
+    article.replaceChildren(title, node("p", { class: "description" },
+      `已完成 ${value.editedBatches} 批修订，共 ${value.characters} 字（不计空白）。初审记录：${results}。`),
+      value.summary && node("p", {}, value.summary), node("pre", { class: "detail-data", tabindex: 0 }, value.body), close);
+    opener.hidden = true;
+    title.focus();
+  });
+  return panel("私有修订稿 · 终审未完成", node("div", { class: "stack" },
+    node("p", { class: "description" }, "原稿编辑曾因输出截断而停止。分批修订后，终审输出再次截断，尚未取得最终批准。"),
+    opener, article));
+}
+
 function partialTaskEvidence(task) {
+  if (task.canReadRevisionPreview) return reviewedRevision(task);
   if (task.state !== "partial") return null;
   if (task.canRetryTruncatedDraft) return panel("私稿编辑中断", node("div", { class: "stack" },
     node("p", { class: "description" }, "上一轮编辑达到输出长度上限，原稿和已审核范围已保留。"),

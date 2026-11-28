@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { TextDecoder } from 'node:util';
 import { CHANNEL_IDS, BotError } from './core.mjs';
 import { fail, identity, integer, object, key } from './core-store.mjs';
+import { readOwnerRevisionPreview, revisionPreviewSource } from './revision-preview.mjs';
 import { configuredOrigin, createOwnerSessions, validateSource } from './http-auth.mjs';
 
 const WORKBENCH_POLICY = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'";
@@ -15,7 +16,7 @@ const ASSETS = {
 const BROWSER_EMPTY = Object.freeze({ configured: false, stopped: false, targets: [], leases: [], audit: [] });
 const ID = '([A-Za-z0-9][A-Za-z0-9_.:@-]{0,159})';
 const MANDATE_PATH = new RegExp(`^/mandates/${ID}(?:/(outcomes|revoke|renew))?$`, 'u');
-const TASK_PATH = new RegExp(`^/tasks/${ID}(?:/(controls|events|decisions|owner-receipts|illustrations))?$`, 'u');
+const TASK_PATH = new RegExp(`^/tasks/${ID}(?:/(controls|events|decisions|owner-receipts|illustrations|revision-preview))?$`, 'u');
 const BROWSER_LEASE = new RegExp(`^/browser/leases/${ID}/(connect|release)$`, 'u');
 const NOTICE = new RegExp(`^/notifications/${ID}/ack$`, 'u');
 
@@ -160,7 +161,7 @@ function browserUnavailable() {
 
 export function createBotHttp({
   core, operations, browser, sources, ctx, ownerAuth, ownerPassword, ownerPasswordHash,
-  origin, clock = Date.now, onError, validateCapability, readIllustrations, describeOnboarding,
+  origin, clock = Date.now, onError, validateCapability, readIllustrations, describeOnboarding, readProviderReceipt, readReviewedRevision,
 } = {}) {
   const target = configuredOrigin(origin);
   const role = identity({ ...ctx, role: ctx?.role ?? 'owner' }, ['owner']);
@@ -304,6 +305,14 @@ export function createBotHttp({
     }
     const mandate = MANDATE_PATH.exec(path);
     const task = TASK_PATH.exec(path);
+    if (task?.[2] === 'revision-preview') {
+      method(request, 'GET');
+      if (query.size || request.headers['transfer-encoding'] || Number(request.headers['content-length']) > 0) {
+        fail(422, 'REVISION_PREVIEW_INPUT_SCOPE', '请从原任务打开修订稿。');
+      }
+      const value = await readOwnerRevisionPreview({ core, role, taskId: task[1], readProviderReceipt, readReviewedRevision });
+      return sendJson(response, 200, value);
+    }
     if (request.method === 'GET') {
       if (path === '/mandates') return sendJson(response, 200, { items: core.listMandates(role) });
       if (path === '/tasks') return sendJson(response, 200, { items: core.listTasks(role) });
@@ -311,7 +320,11 @@ export function createBotHttp({
       if (path === '/capabilities') return sendJson(response, 200, { items: core.listCapabilities(role) });
       if (mandate && !mandate[2]) return sendJson(response, 200, core.getMandate(mandate[1], role));
       if (mandate?.[2] === 'outcomes') return sendJson(response, 200, core.outcomes(mandate[1], role));
-      if (task && !task[2]) return sendJson(response, 200, core.getTask(task[1], role));
+      if (task && !task[2]) {
+        const value = core.getTask(task[1], role);
+        if (readReviewedRevision && revisionPreviewSource(core, value, role)) value.canReadRevisionPreview = true;
+        return sendJson(response, 200, value);
+      }
       if (task?.[2] === 'illustrations') {
         if (!readIllustrations) fail(503, 'ILLUSTRATION_INBOX_UNAVAILABLE', '此部署尚未接通配图工作单。');
         return sendJson(response, 200, await readIllustrations(core.getTask(task[1], role)));

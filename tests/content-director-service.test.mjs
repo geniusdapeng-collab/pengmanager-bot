@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { JsonStore } from "../src/storage/json-store.mjs";
@@ -240,7 +240,7 @@ test("approved article materializes as an immutable editorial edition", async t 
   assert.equal(f.editorial.getEdition(materialized.edition.id).snapshotHash, materialized.edition.snapshotHash);
 });
 
-for (const mode of ["bounded repair", "compact continuation", "incomplete compact continuation"]) {
+for (const mode of ["bounded repair", "compact continuation", "incomplete compact continuation", "final review truncation"]) {
   test(`a private managed article preserves its original bytes and reviews during ${mode}`, t => verifyRevision(t, mode));
 }
 
@@ -261,7 +261,10 @@ async function verifyRevision(t, mode) {
   }, { actor: "fixture", aiApproval });
 
   const calls = [];
-  const result = value => ({ value, receipt: { responseId: "synthetic-" + calls.length } });
+  const result = (value, scene = "fixture") => ({ value, receipt: {
+    responseId: "synthetic-" + calls.length, responseHash: hashObject(value), finishReason: "stop",
+    policy: { scene }, requestedModel: "fixture", returnedModel: "fixture",
+  } });
   const titles = [..."甲乙丙丁戊己庚"];
   const letters = [..."天地人"];
   const sections = titles.map((title, i) => ({
@@ -285,11 +288,20 @@ async function verifyRevision(t, mode) {
       : [];
     if (!article.summary.includes("Paperbird")) findings.push({ severity: "major", dimension: "expression",
       code: "vague-masked-product-name", location: "summary", message: "在摘要写明已审核来源项目" });
-    return result({ assessment: "fixture", findings, coverage: { facts: true, structure: true, expression: true, policy: true, technical: true, visual: true } });
+    if (mode === "final review truncation" && article.summary.includes("Paperbird")) findings.push({ severity: "minor",
+      dimension: "expression", code: "EDITORIAL_NOTE", location: "summary", message: "核对专用名词。" });
+    return result({ assessment: "fixture", findings, coverage: { facts: true, structure: true, expression: true, policy: true, technical: true, visual: true } }, "content.audit.article");
   };
+  if (mode === "final review truncation") {
+    model.finalAuditArticle = async input => {
+      if (!input.article.summary.includes("Paperbird")) return model.auditArticle(input);
+      calls.push("final");
+      throw new ApiError(502, "MODEL_OUTPUT_TRUNCATED", "isolated final response reached length");
+    };
+  }
   model.planBoundedRevision = async () => {
     calls.push("scope");
-    return result({ paragraphs: sections.map(s => ({ sectionKey: s.key, paragraph: 2 })), summary: true, reason: "中段重复范围声明" });
+    return result({ paragraphs: sections.map(s => ({ sectionKey: s.key, paragraph: 2 })), summary: true, reason: "中段重复范围声明" }, "content.audit");
   };
   model.applyBoundedRevision = async ({ article, plan }) => {
     calls.push("edit");
@@ -307,14 +319,14 @@ async function verifyRevision(t, mode) {
     if (input.privateSummaryScope) {
       calls.push("summary");
       assert.ok(input.entries[0].text.includes("某历史"));
-      return result({ texts: ["Paperbird 历史修订的来源与限制。"] });
+      return result({ texts: ["Paperbird 历史修订的来源与限制。"] }, "content.repair.copyedit");
     }
     const [entry] = input.entries;
     assert.equal(entry.paragraph, 2);
     assert.ok(entry.targetCharacters < entry.text.length);
     calls.push(entry.sectionKey);
     if (mode === "incomplete compact continuation") throw new ApiError(502, "MODEL_OUTPUT_TRUNCATED", "second fixture failure");
-    return result({ texts: [entry.text.slice(0, Math.max(12, entry.targetCharacters - 2))] });
+    return result({ texts: [entry.text.slice(0, Math.max(12, entry.targetCharacters - 2))] }, "content.repair.copyedit");
   };
   const adapter = createNativeBotAdapter({ app: { ...f, contentDirector: f.director } });
   const request = { taskId: "synthetic-private-trial", privateDraft: true, opportunity: { title: "Paperbird 历史资料精读", locale: "zh-CN" },
@@ -349,6 +361,48 @@ async function verifyRevision(t, mode) {
       await assert.rejects(f.director.startJob(original.id, { ...originalControl, ifMatch: incomplete.etag }, { resumeTruncatedRevision: true }),
         { code: "ARTICLE_REVISION_UNAVAILABLE" });
       assert.deepEqual(calls, ["scope", "edit", "summary", "section0"]);
+      return;
+    }
+    if (mode === "final review truncation") {
+      await assert.rejects(f.director.processJob(original.id, { managedExecution: true }), { code: "MODEL_OUTPUT_TRUNCATED" });
+      const stopped = await f.director.getJob(original.id);
+      const scopeStepId = stopped.truncatedRevision.scopeId;
+      const binding = { sourceSha256: original.resultRef.sha256, scopeStepId };
+      const read = () => f.director.readReviewedRevisionPreview(original.id, binding);
+      assert.equal(stopped.currentStep, "quality.final");
+      const snapshot = f.store.snapshot();
+      const priorCalls = [...calls];
+      const preview = await read();
+      assert.deepEqual(await read(), preview);
+      assert.equal(preview.approved, false);
+      assert.equal(preview.editedBatches, 8);
+      assert.equal(preview.stage, "quality.final");
+      assert.equal(preview.code, "MODEL_OUTPUT_TRUNCATED");
+      assert.equal(preview.characters, preview.body.replace(/\s/gu, "").length);
+      assert.notEqual(preview.body, original.result.article.body);
+      assert.notEqual(preview.contentHash, original.resultHash);
+      const first = stopped.reports.find(row => row.contentHash === preview.contentHash && row.phase === "quality.review");
+      assert.equal(first.modelReceipt.responseId, preview.reviewResponseId);
+      assert.deepEqual(preview.firstReview, { reportHash: first.reportHash, minor: 1, major: 0, blocker: 0, suggestion: 0 });
+      assert.deepEqual(f.store.snapshot(), snapshot);
+      assert.deepEqual(calls, priorCalls);
+      assert.deepEqual(decisions.map(d => d.kind), ["geo_claim"]);
+      await assert.rejects(f.director.readReviewedRevisionPreview(original.id, { ...binding, scopeStepId: "other" }),
+        { code: "ARTICLE_REVISION_PREVIEW_UNAVAILABLE" });
+      await assert.rejects(f.director.readReviewedRevisionPreview(original.id, { ...binding, sourceSha256: "a".repeat(64) }),
+        { code: "ARTICLE_REVISION_PREVIEW_UNAVAILABLE" });
+      const batch = stopped.steps.find(s => s.kind === "article.repair" && s.key.includes(":batch:"));
+      const file = join(f.store.filePath, "..", "content-director", original.id, batch.artifact.name);
+      const bytes = await readFile(file);
+      await writeFile(file, Buffer.alloc(bytes.length, "x"));
+      await assert.rejects(read(), { code: "CONTENT_ARTIFACT_CHANGED" });
+      await writeFile(file, bytes);
+      const final = stopped.steps.find(s => s.kind === "quality.final" && s.status === "failed");
+      await f.store.mutate({ type: "test.mismatched_failed_final", actor: "fixture", payload: {} }, state => {
+        state.contentDirectorSteps.find(s => s.id === final.id).inputHash = "f".repeat(64);
+      });
+      await assert.rejects(read(), { code: "ARTICLE_REVISION_PREVIEW_UNAVAILABLE" });
+      assert.deepEqual(calls, priorCalls);
       return;
     }
     const finished = await f.director.processJob(original.id, { managedExecution: true });
