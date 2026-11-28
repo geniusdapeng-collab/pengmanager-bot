@@ -6,11 +6,15 @@ import { createServer } from "node:net";
 import { once } from "node:events";
 import test from "node:test";
 import { createBotHost } from "../src/bot/host.mjs";
+import { createBotCore } from "../src/bot/core.mjs";
+import { BotError } from "../src/bot/core-store.mjs";
 import { createMeter } from "../src/bot/meter.mjs";
 import { createNotificationDelivery } from "../src/bot/daemon.mjs";
 import { createSources } from "../src/bot/sources.mjs";
 import { openIntentJournal } from "../src/bot/files.mjs";
 import { loadSettings } from "../src/bot/settings.mjs";
+import { DeepSeekAdapter } from "../src/adapters/deepseek.mjs";
+import { createAiApproval } from "../src/services/ai-approval.mjs";
 
 function dir(t) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), "pengmanager-bot-test-"));
@@ -109,6 +113,63 @@ test("unknown provider outcome retains cost and refuses a blind repeat", async t
     await assert.rejects(send,/connection lost/); await assert.rejects(send,{code:"ORIGINAL_COST_RECONCILIATION_REQUIRED"});
   });
   assert.equal(calls,1); assert.equal(core.spent[0].status,"unknown");
+});
+
+test("local budget admission survives model dispatch, approval replay and restart", async t => {
+  const root = dir(t);
+  const core = createBotCore({ mode: "real", journal: openIntentJournal(dir(t), {
+    primaryDirectory: root, requireSeparateVolume: false,
+  }) });
+  t.after(() => core.close());
+  const owner = { workspaceId: "budget-tests", projectId: "p1", actorId: "owner", role: "owner" };
+  const worker = { ...owner, actorId: "worker", role: "worker" };
+  function claimStep(id, limitMinor) {
+    const mandate = core.createMandate({ objective: "Review original facts", idempotencyKey: "mandate-" + id,
+      budget: { currency: "CNY", limitMinor } }, owner);
+    core.createTask({ mandateId: mandate.id, title: "Review this source", idempotencyKey: "task-key-" + id }, owner);
+    return core.claim({ kinds: ["discover"] }, worker);
+  }
+  const zero = claimStep("zero", 0);
+  const endpoint = "https://model.example.test";
+  let providerCalls = 0;
+  const meter = createMeter({ core, dataDir: root, mode: "real", endpoint,
+    pricing: { currency: "CNY", reference: "test", inputPerMillion: 2, cacheHitPerMillion: 1, outputPerMillion: 8 },
+    async fetchImpl() {
+      providerCalls++;
+      // An identical error code thrown after dispatch cannot attest to non-delivery.
+      throw new BotError(409, "BUDGET_EXCEEDED", "Connection lost after the model request");
+    },
+  });
+  const model = new DeepSeekAdapter({ apiKey: "local-test", baseUrl: endpoint, fetchImpl: meter.fetch });
+  const approval = () => createAiApproval({ directory: join(root, "approval"), model });
+  const review = { kind: "geo_claim", subjectId: "claim-1", snapshotHash: "a".repeat(64),
+    evidence: { text: "An official release describes this feature." }, criteria: ["Does the source support the claim?"] };
+  function assertBudget(error) {
+    assert.equal(error.code, "BUDGET_EXCEEDED");
+    assert.equal(error.status, 409);
+    assert.equal(error.details.availableMinor, 0);
+    assert.deepEqual(error.attempts, [{ attempt: 1, code: "BUDGET_EXCEEDED", dispatched: false, unknown: false, retryable: false }]);
+    assert.equal(error.unknown, false);
+    return true;
+  }
+  await assert.rejects(meter.run(zero, worker, () => model.completeTask({
+    scene: "content.research.plan", messages: [{ role: "user", content: "Review this source." }],
+  })), assertBudget);
+  const first = approval();
+  await Promise.all([1, 2].map(() => assert.rejects(meter.run(zero, worker, () => first.review(review)), assertBudget)));
+  await assert.rejects(meter.run(zero, worker, () => approval().review(review)), assertBudget);
+  assert.equal(providerCalls, 0);
+  assert.equal(core.listCosts(owner).length, 0);
+
+  const funded = claimStep("funded", 100);
+  await assert.rejects(meter.run(funded, worker, () => approval().review(review)), {
+    code: "MODEL_NETWORK_UNKNOWN", unknown: true,
+  });
+  await assert.rejects(meter.run(funded, worker, () => approval().review(review)), {
+    code: "AI_APPROVAL_REVIEW_UNRESOLVED",
+  });
+  assert.equal(providerCalls, 1);
+  assert.deepEqual(core.listCosts(owner).map(cost => cost.state), ["unknown"]);
 });
 
 test("feed reads only an active mandate and binds a trustworthy candidate to its original event", async t => {

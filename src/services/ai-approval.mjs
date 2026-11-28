@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { ApiError } from "../domain/errors.mjs";
 import { editorialSensitiveFindings } from "../domain/editorial.mjs";
 import { hashObject } from "../domain/hash.mjs";
+import { ModelAdmissionError } from "../model-routing/errors.mjs";
 import { TEXT_PRIMARY_MODEL } from "../model-routing/registry.mjs";
 import { AI_APPROVAL_MAX_IMAGE_BYTES, AI_APPROVAL_MAX_IMAGE_COUNT } from "./approval-media-evidence.mjs";
 
@@ -355,9 +356,10 @@ export function createAiApproval({ directory, origin, model, clock = () => new D
           let receipt;
           try { receipt = await judgeAiApproval(order, model, clock); }
           catch (error) {
-            if (KNOWN_REFUSALS.has(error?.code) && error.unknown !== true) {
+            if (error instanceof ModelAdmissionError || KNOWN_REFUSALS.has(error?.code) && error.unknown !== true) {
               await writeOnce(file(reviewId, `local-refusal-${randomUUID()}`), { code: error.code, at: clock().toISOString() });
               await discardOrder(file(reviewId, "local-attempt"));
+              if (error instanceof ModelAdmissionError) throw error;
               fail(503, error.code === "MODEL_HTTP_402" ? "AI_APPROVAL_PROVIDER_BALANCE" : "AI_APPROVAL_PROVIDER_RATE_LIMIT",
                 "AI 模型暂未接受审核请求，原工作单可安全重试。", { reviewId });
             }

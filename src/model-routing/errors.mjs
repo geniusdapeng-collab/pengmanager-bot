@@ -23,3 +23,14 @@ export class ModelDispatchError extends Error {
 export function modelError(code, message, options) {
   return new ModelDispatchError(code, message, options);
 }
+
+// Only the local meter can attest that admission failed before a provider call.
+// A transport may throw the same business code after a request was sent.
+export class ModelAdmissionError extends ModelDispatchError {
+  constructor(cause) {
+    super(cause.code, cause.message, { cause });
+    this.name = "ModelAdmissionError";
+    this.status = cause.status;
+    this.details = cause.details;
+  }
+}

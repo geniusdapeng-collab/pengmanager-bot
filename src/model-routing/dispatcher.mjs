@@ -1,7 +1,7 @@
 import { hashObject, hashText } from "../domain/hash.mjs";
 import { DEEPSEEK_REQUEST_BODY_LIMIT_BYTES } from "../../engines/video-edit/packages/base/model-router/deepseek-window.mjs";
 import { parseStrictJson } from "../domain/strict-json.mjs";
-import { modelError } from "./errors.mjs";
+import { ModelAdmissionError, modelError } from "./errors.mjs";
 import { planWindow } from "./budget.mjs";
 import { MODEL_POLICY, policyReceipt, resolveScenePolicy } from "./policy.mjs";
 import {
@@ -324,6 +324,11 @@ export class ModelDispatcher {
             signal: combined,
           });
         } catch (error) {
+          if (error instanceof ModelAdmissionError) {
+            error.wireSha256 = wireSha256;
+            error.attempts = [...retryEvidence, { attempt, code: error.code, dispatched: false, unknown: false, retryable: false }];
+            throw error;
+          }
           const timedOut = timeoutSignal.aborted;
           lastError = modelError(
             signal?.aborted ? "MODEL_CANCELLED" : timedOut ? "MODEL_TIMEOUT" : "MODEL_NETWORK_UNKNOWN",
