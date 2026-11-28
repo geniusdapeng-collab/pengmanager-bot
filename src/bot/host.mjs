@@ -53,9 +53,11 @@ export async function createBotHost({ env = process.env, settings = loadSettings
       throw new Error("The original workspace data mode changed before startup.");
     }
     const modelEndpoint = settings.modelEndpoint || DEEPSEEK_OFFICIAL_BASE_URL;
-    const meter = createMeter({ core, dataDir, pricing: settings.pricing, endpoint: modelEndpoint, mode });
+    const meter = createMeter({ core, dataDir, pricing: settings.pricing, endpoint: modelEndpoint, mode,
+      taskQuota: settings.taskProviderQuota });
     const apiKey = real ? env.BOT_MODEL_KEY : null;
-    const client = new DeepSeekAdapter({ apiKey: apiKey || "unconfigured", baseUrl: modelEndpoint, fetchImpl: meter.fetch, maxRetries: 0 });
+    const client = new DeepSeekAdapter({ apiKey: apiKey || "unconfigured", baseUrl: modelEndpoint, fetchImpl: meter.fetch,
+      taskOutputCap: meter.maxOutputTokens, maxRetries: 0 });
     const approvalDir = privateDirectory(join(dataDir, "bot-review"));
     if (existsSync(join(approvalDir, "reviewer-public-key.json"))) throw new Error("Use a separate directory for external reviewer jobs with separate billing.");
     const approval = createAiApproval({ directory: approvalDir, origin, model: real && apiKey && meter.ready ? client : undefined });
@@ -115,7 +117,8 @@ export async function createBotHost({ env = process.env, settings = loadSettings
         if (url.pathname === "/healthz" && ["GET","HEAD"].includes(req.method)) {
           const ready = daemon?.health().ready && core.health(sys).ready;
           res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-          res.end(req.method === "HEAD" ? undefined : JSON.stringify({ service: "pengmanager-bot", ready: Boolean(ready) })); return;
+          res.end(req.method === "HEAD" ? undefined : JSON.stringify({ service: "pengmanager-bot", ready: Boolean(ready),
+            taskProviderQuotaFingerprint: meter.quotaFingerprint })); return;
         }
         if (url.pathname === "/" && ["GET","HEAD"].includes(req.method)) { res.writeHead(302, { Location: "/bot/" }).end(); return; }
         if (["GET","HEAD"].includes(req.method) && (/^\/(?:zh|en)(?:\/|$)/.test(url.pathname) ||

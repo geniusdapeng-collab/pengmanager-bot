@@ -629,7 +629,7 @@ export function createEffectService({
     return all('SELECT * FROM costs WHERE scope = ? ORDER BY rowid DESC LIMIT 500', ctx.scope).map(costView);
   }
 
-  function reserveCost(input, auth) {
+  function reserveCost(input, auth, admitProvider) {
     const ctx = identity(auth, WORK);
     object(input, 'cost reservation');
     return transaction(() => {
@@ -646,6 +646,17 @@ export function createEffectService({
       const requestHash = hash([amount, input.currency, input.provider ?? null, requestKey, input.requestHash ?? null]);
       const existing = get('SELECT * FROM costs WHERE id = ?', id);
       if (existing && parse(existing.data).requestHash !== requestHash) fail(409, 'COST_IDEMPOTENCY_CONFLICT', 'The cost request key already identifies different work.');
+      let providerTokenHold;
+      if (admitProvider && (!existing || existing.state === 'reserved' || existing.state === 'released' && !parse(existing.data).dispatchedAt)) {
+        const rowsForTasks = ids => {
+          ids.forEach(taskId => taskRow(taskId, ctx));
+          return all(`SELECT * FROM costs WHERE scope = ? AND task_id IN (${ids.map(() => '?').join(',')})`, ctx.scope, ...ids).map(costView);
+        };
+        providerTokenHold = admitProvider({ id, taskId: task.id, rowsForTasks });
+        if (existing?.state === 'reserved' && providerTokenHold) {
+          run('UPDATE costs SET data = ? WHERE id = ?', json({ ...parse(existing.data), providerTokenHold }), id);
+        }
+      }
       if (existing && (existing.state !== 'released' || parse(existing.data).dispatchedAt)) return costView(existing);
       if (budget.currencyConflict) fail(409, 'BUDGET_EXCEEDED', 'Available authorization does not cover this reservation.', budget);
       const geoCommitmentId = geo.reservedForStep(mandate, step, amount, budget, at);
@@ -653,6 +664,7 @@ export function createEffectService({
       const provider = string(input.provider, 'provider', 160, true);
       const nativeOrderRef = provider === 'native_signed_order' ? sha(input.requestHash, 'native signed order evidence hash') : null;
       const data = { requestKey, requestHash, provider, nativeOrderRef, geoCommitmentId, epoch: step.epoch,
+        ...(providerTokenHold ? { providerTokenHold } : {}),
         reservedBy: ctx.actorId, reservedRole: ctx.role, reservedAt: at };
       run(`INSERT INTO costs(id, scope, mandate_id, task_id, step_id, state, reserved, actual, currency, window_start, data)
         VALUES (?, ?, ?, ?, ?, 'reserved', ?, NULL, ?, ?, ?)

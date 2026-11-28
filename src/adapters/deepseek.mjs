@@ -100,6 +100,7 @@ export class DeepSeekAdapter {
     fetchImpl = fetch,
     dispatcher,
     maxRetries = 1,
+    taskOutputCap,
   } = {}) {
     this.baseUrl = cleanBaseUrl(baseUrl);
     this.model = normalizeTextModelId(model);
@@ -107,6 +108,7 @@ export class DeepSeekAdapter {
     this.timeoutMs = timeoutMs;
     this.fetchImpl = fetchImpl;
     this.maxRetries = maxRetries;
+    this.taskOutputCap = taskOutputCap;
     this.dispatcher = dispatcher ?? null;
   }
 
@@ -124,6 +126,7 @@ export class DeepSeekAdapter {
         fetchImpl: this.fetchImpl,
         timeoutMs: this.timeoutMs,
         maxRetries: this.maxRetries,
+        taskOutputCap: this.taskOutputCap,
       });
     }
     return this.dispatcher;

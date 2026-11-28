@@ -83,14 +83,23 @@ const replacements = [
 
 const placeholderPattern = /(?:^|[^A-Za-z0-9])(?:[XＸ]{2,}|TBD|TODO)(?=$|[^A-Za-z0-9])|(?:[XＸ]{2,}|[*＊×]{2,}|某)\s*(?:系统|平台|产品|品牌|公司|工具|中枢|协同)/giu;
 
-export const PRODUCT_NAMING_PROMPT = [
-  "HARD PRODUCT-NAMING RULE:",
-  "Never publish a concrete product, company, repository, code name, internal product name, or brand name in article titles, summaries, body text, headings, lists, captions, alt text, visual labels, or user-facing metadata.",
-  "When citing an authorized external source, copy its URL verbatim. Apply generic naming to the surrounding prose.",
-  `Replace each such name with the role-based generic Chinese industry term defined by ${PRODUCT_NAMING_POLICY_VERSION}.`,
-  "For example: WorkLoom -> AI Agent 经营系统; Agent IM -> 企业智能协作平台; Andromeda/仙女座 -> 平台运营中枢; HyperReality -> AI 视频内容生产系统; WorkLoom Video Edit/Edit-AI -> 智能视频后期系统; GeoEvidence Studio -> AI 可见度证据系统; Panda Cineforge -> 多平台电商经营系统; Eagle -> 企业咨询经营系统; Tiger -> 交易纪律管理系统; 狐狸先生 -> 智能体交互实验系统; WorkLoom Eval -> 数字员工评测系统.",
-  "Never use XX, XXXX, TBD, placeholders, masked names, or vague phrases such as “某产品” as a substitute. If no accurate generic name can be derived, stop and return a blocker instead of inventing one.",
-].join(" ");
+export function articleProductNamingPrompt(reviewedReleaseNames = []) {
+  const hasReviewedSubject = reviewedReleaseNames.length > 0;
+  return [
+    "HARD PRODUCT-NAMING RULE:",
+    hasReviewedSubject
+      ? `Use the expressly requested, source-verified release project names in the article summary to identify its historical subject: ${JSON.stringify(reviewedReleaseNames)}. Preserve owner restrictions and cite only supported facts. Apply generic naming to all other products, companies, platforms and model names.`
+      : "Never publish a concrete product, company, repository, code name, internal product name, or brand name in article titles, summaries, body text, headings, lists, captions, alt text, visual labels, or user-facing metadata.",
+    hasReviewedSubject
+      ? "Copy authorized source URLs verbatim. In all prose outside that limited summary attribution, apply the full generic naming rule to every concrete name."
+      : "When citing an authorized external source, copy its URL verbatim. Apply generic naming to the surrounding prose.",
+    `Replace each such name with the role-based generic Chinese industry term defined by ${PRODUCT_NAMING_POLICY_VERSION}.`,
+    "For example: WorkLoom -> AI Agent 经营系统; Agent IM -> 企业智能协作平台; Andromeda/仙女座 -> 平台运营中枢; HyperReality -> AI 视频内容生产系统; WorkLoom Video Edit/Edit-AI -> 智能视频后期系统; GeoEvidence Studio -> AI 可见度证据系统; Panda Cineforge -> 多平台电商经营系统; Eagle -> 企业咨询经营系统; Tiger -> 交易纪律管理系统; 狐狸先生 -> 智能体交互实验系统; WorkLoom Eval -> 数字员工评测系统.",
+    "Never use XX, XXXX, TBD, placeholders, masked names, or vague phrases such as “某产品” as a substitute. If no accurate generic name can be derived, stop and return a blocker instead of inventing one.",
+  ].join(" ");
+}
+
+export const PRODUCT_NAMING_PROMPT = articleProductNamingPrompt();
 
 function collectLeafStrings(value, path = "content", rows = []) {
   if (typeof value === "string") {

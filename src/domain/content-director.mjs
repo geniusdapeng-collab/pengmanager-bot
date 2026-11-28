@@ -152,6 +152,18 @@ export function normalizeArticleLength(value, fallback = {}) {
   return { minCharacters, maxCharacters };
 }
 
+function nonWhitespaceLength(text) {
+  return String(text ?? "").replace(/\s+/g, "").length;
+}
+
+export function measureArticleLength(article, targetLength) {
+  return {
+    method: "article.body/non-whitespace-utf16-v1",
+    characters: nonWhitespaceLength(article?.body),
+    ...normalizeArticleLength(targetLength),
+  };
+}
+
 export function splitSectionsFromMarkdown(body) {
   const sections = [];
   let current = null;
@@ -172,7 +184,7 @@ export function splitSectionsFromMarkdown(body) {
       title: section.title,
       body: text,
       paragraphs,
-      charactersWithoutWhitespace: text.replace(/\s+/g, "").length,
+      charactersWithoutWhitespace: nonWhitespaceLength(text),
     };
   });
 }
@@ -191,7 +203,7 @@ export function deterministicArticleFindings(article, { minCharacters, maxCharac
   const findings = [];
   const body = String(article?.body ?? "");
   const sections = splitSectionsFromMarkdown(body);
-  const characters = body.replace(/\s+/g, "").length;
+  const characters = nonWhitespaceLength(body);
   if (!article?.title?.trim()) findings.push({ severity: "blocker", code: "TITLE_REQUIRED", dimension: "structure", location: "title", message: "文章缺少标题。" });
   if (!body.trim()) findings.push({ severity: "blocker", code: "BODY_REQUIRED", dimension: "structure", location: "body", message: "文章正文为空。" });
   if (sections.length < 3) findings.push({ severity: "blocker", code: "SECTION_COUNT_TOO_LOW", dimension: "structure", location: "body", message: "完整长文至少需要三个二级章节。" });

@@ -4,6 +4,7 @@ import { open, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { publicEditorialClaim, reviewedClaimSource } from '../domain/editorial.mjs';
+import { privateArticleRevisionScope } from '../domain/bounded-article-revision.mjs';
 import { fail, hash, modeOf } from './core-store.mjs';
 import { devArticleInput } from './operations-dev.mjs';
 
@@ -370,6 +371,10 @@ export function createNativeBotAdapter({ app, mode = 'real', loadIllustration, a
     // Previously successful editorial steps and paid requests are read through their original keys.
     if (job.managedExecution && job.status === 'failed' && job.error?.code === 'REPAIR_SCOPE_REQUIRED') {
       job = await director.startJob(job.id, ctx(productionActor, [taskId, job.id, 'resume-scoped-repair'], job));
+    }
+    if (privateDraft && job.status === 'blocked' && privateArticleRevisionScope(job)) {
+      job = await director.startJob(job.id, ctx(productionActor, [taskId, job.id, job.resultRef.sha256, 'revise-private-article'], job),
+        { repairBlockedArticle: true });
     }
     if (['queued', 'needs_resume'].includes(job.status)) {
       try {

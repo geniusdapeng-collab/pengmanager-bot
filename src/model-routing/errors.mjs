@@ -34,3 +34,10 @@ export class ModelAdmissionError extends ModelDispatchError {
     this.details = cause.details;
   }
 }
+
+export class ModelQuotaReceiptError extends ModelDispatchError {
+  constructor({ providerRequestId, usageReceipt, unknown }) {
+    super("MODEL_QUOTA_RECEIPT_RECONCILIATION_REQUIRED", "原始供应商用量与请求的配额预留不符，已停止交付并保留对账依据。",
+      { providerRequestId, usageReceipt, unknown });
+  }
+}
