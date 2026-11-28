@@ -73,6 +73,10 @@ export class ContentDirectorModel {
   }
 
   async repairSection(input) {
+    if (input.allowedParagraphs?.length) {
+      return this.#json("content.repair",
+        "Repair only the specified original paragraphs. Return {edits:[{paragraph,text}],claimIds:[string]}. Paragraph numbers are one-based. Each text replaces one complete paragraph. Do not emit or change any other paragraph or heading. Keep numbers, dates and claims only when the supplied approved facts support them, otherwise remove unsupported assertions. Cite only supplied claim IDs. Do not add a new fact or invent a source.", input);
+    }
     return this.#json(
       "content.repair",
       "Repair exactly one article section to resolve the supplied findings. Return {title,body,paragraphs:[string],claimIds:[string]}. Change only the paragraphs named by allowedChanges; preserve every fact, limitation, author judgment and qualifier outside the allowed scope. Do not add new numbers, sources, experiences, capabilities or URLs. At least two substantive paragraphs are required unless the target length cannot accommodate them.",
@@ -80,10 +84,15 @@ export class ContentDirectorModel {
     );
   }
 
+  async planSectionRepair(input) {
+    return this.#json("content.audit",
+      "Act as the independent editor. Decide exactly which paragraphs in this one supplied section the original blocking findings authorize repairing. Return {paragraphs:[integer],reason:string}; numbers are one-based. Include only paragraphs directly implicated by the evidence and findings. Return an empty array if the location or corrective scope cannot be justified. Do not draft text, expand the job scope, change the heading or add a new claim.", input);
+  }
+
   async auditArticle(input) {
     return this.#json(
       "content.audit",
-      "Act as an independent professional editor. Read the complete article, brief, claims and research. Return {assessment,findings:[{severity,dimension,code,location,message,allowedChanges}],coverage:{facts,structure,expression,policy}}. severity is blocker|major|minor|suggestion; dimension is facts|structure|expression|policy|technical|disclosure. Do not rewrite the article. Every numeric claim, current version, API or capability must be supported by supplied evidence. A heading without substantive body is a blocker.",
+      "Act as an independent professional editor. Read the complete article, brief, claims and research. Return {assessment,findings:[{severity,dimension,code,location,message,allowedChanges}],coverage:{facts,structure,expression,policy}}. severity is blocker|major|minor|suggestion; dimension is facts|structure|expression|policy|technical|disclosure. For a section issue use location section:<exact section key> with allowedChanges listing paragraph:<one-based index> for each affected paragraph. Only use the exact section key in allowedChanges when the whole section demonstrably requires revision. Do not rewrite the article. Every numeric claim, current version, API or capability must be supported by supplied evidence. A heading without substantive body is a blocker.",
       input,
     );
   }

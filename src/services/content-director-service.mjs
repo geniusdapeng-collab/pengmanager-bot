@@ -132,6 +132,24 @@ function normalizeFindings(value) {
   });
 }
 
+function retainOpenFindings(deterministic, open) {
+  for (const finding of open) {
+    const { severity, dimension, code, location, message, allowedChanges = [] } = finding;
+    if (!deterministic.some(item => item.code === code && item.location === location && item.message === message)) {
+      deterministic.push({ severity, dimension, code, location, message, allowedChanges });
+    }
+  }
+}
+
+function repairSectionIndex(location, sections) {
+  const numeric = /^section:(\d+)$/iu.exec(location);
+  if (numeric) return Number(numeric[1]);
+  const exact = sections.findIndex(section => location === section.key || location === `section:${section.key}`);
+  if (exact >= 0) return exact;
+  const legacy = /^section-(\d+)$/iu.exec(location);
+  return legacy ? Number(legacy[1]) : -1;
+}
+
 function articleHash(article) {
   return hashObject({
     title: article.title,
@@ -139,6 +157,8 @@ function articleHash(article) {
     body: article.body,
     sections: article.sections,
     visualSpecRefs: article.visualSpecRefs ?? [],
+    // Old frozen packages used the earlier hash input. New packages also bind the editorial metadata.
+    ...(Array.isArray(article.sourceReferences) ? { sourceReferences: article.sourceReferences, tags: article.tags } : {}),
   });
 }
 
@@ -1029,17 +1049,18 @@ export class ContentDirectorService {
 
   async startJob(id, ctx) {
     assertionAdmin(ctx);
-    const job = await this.getJob(id);
-    if (job.missing.length) fail(409, "CONTENT_JOB_NEEDS_INPUT", "任务仍缺少必要输入。", { missing: job.missing });
-    if (!["queued", "needs_resume", "blocked", "failed"].includes(job.status)) {
-      fail(409, "CONTENT_JOB_NOT_STARTABLE", `当前状态 ${job.status} 不能启动。`);
-    }
     await this.store.mutate({
       type: "content_director.job_started",
       actor: ctx.actor,
       payload: { jobId: id },
     }, state => {
       const row = state.contentDirectorJobs.find(item => item.id === id);
+      if (!row) fail(404, "CONTENT_JOB_NOT_FOUND", "找不到内容 Job。");
+      if (ctx.ifMatch) assertJobVersion(row, ctx.ifMatch);
+      if (row.missing.length) fail(409, "CONTENT_JOB_NEEDS_INPUT", "任务仍缺少必要输入。", { missing: row.missing });
+      if (!["queued", "needs_resume", "blocked", "failed"].includes(row.status)) {
+        fail(409, "CONTENT_JOB_NOT_STARTABLE", `当前状态 ${row.status} 不能启动。`);
+      }
       row.status = "queued";
       row.error = null;
       row.pauseRequested = false;
@@ -2095,25 +2116,38 @@ export class ContentDirectorService {
       sections.push(drafted);
     }
 
-    const buildArticle = (rows, visuals = []) => ({
-      title: outline.title,
-      summary: outline.summary,
-      body: composeArticleBody(rows),
-      sections: rows,
-      blocks: buildArticleBlocks(rows),
-      productNaming: genericProductNamingPolicy(),
-      tags: deriveTags(brief),
-      language: brief.language,
-      claimIds: brief.claimIds,
-      visualSpecRefs: visuals.map(row => row.id),
+    const authorizedSources = claimRows(this.state(), brief.claimIds);
+    const sourceReferences = authorizedSources.flatMap(claim => {
+      const fact = publicEditorialClaim(claim, { now: this.clock() });
+      return fact ? [{ claimId: fact.id, url: fact.source.url }] : [];
     });
+    const buildArticle = (rows, visuals = []) => {
+      const body = composeArticleBody(rows);
+      const citations = [...new Set(sourceReferences.map(fact => fact.url))].filter(url => !body.includes(url));
+      const sourceLine = citations.length
+        ? (brief.language === "en-US" ? "Sources" : "核验来源") + "\n" + citations.join("\n")
+        : "";
+      return {
+        title: outline.title,
+        summary: outline.summary,
+        body: sourceLine ? `${body}\n\n${sourceLine}` : body,
+        sections: [...rows],
+        blocks: [...buildArticleBlocks(rows), ...(sourceLine ? [{ type: "paragraph", text: sourceLine }] : [])],
+        productNaming: genericProductNamingPolicy(),
+        tags: deriveTags(brief),
+        sourceReferences,
+        language: brief.language,
+        claimIds: brief.claimIds,
+        visualSpecRefs: visuals.map(row => row.id),
+      };
+    };
     let article = buildArticle(sections);
-    const assembleKey = hashObject({ outlineHash, sections: sections.map(section => hashObject(section)) });
+    const assembleKey = hashObject({ outlineHash, article: articleHash(article) });
     step = await this.#beginStep(id, "article.assemble", assembleKey, { sectionCount: sections.length, outlineHash });
     const assembledArtifact = await this.#writeArtifact(id, `article-${articleHash(article).slice(0, 12)}.md`, article.body, "text/markdown");
     await this.#finishStep(id, step, { output: { articleHash: articleHash(article), characters: article.body.replace(/\s+/g, "").length }, artifact: assembledArtifact });
 
-    const allowedUrls = articleCitationUrls(research.sources, claimRows(this.state(), brief.claimIds), this.clock());
+    const allowedUrls = articleCitationUrls(research.sources, authorizedSources, this.clock());
     let deterministicFindings = deterministicArticleFindings(article, {
       ...brief.targetLength,
       allowedUrls,
@@ -2128,16 +2162,22 @@ export class ContentDirectorService {
       deterministicFindings,
     });
     let blocking = report.findings.filter(row => ["blocker", "major"].includes(row.severity));
-    for (let round = 1; round <= 2 && blocking.some(row => ["blocker", "major"].includes(row.severity)); round += 1) {
-      const indexes = [...new Set(blocking
-        .map(row => /section[-:](\d+)/i.exec(row.location ?? "")?.[1])
-        .filter(value => value !== undefined)
-        .map(Number))]
-        .filter(index => Number.isSafeInteger(index) && outline.sections[index]);
-      if (!indexes.length) break;
-      for (const index of indexes) {
+    for (let round = 1; round <= 2 && blocking.length; round += 1) {
+      const grouped = new Map();
+      const untouched = [];
+      for (const finding of blocking) {
+        const index = repairSectionIndex(finding.location, outline.sections);
+        if (!outline.sections[index]) {
+          untouched.push(finding);
+          continue;
+        }
+        if (!grouped.has(index)) grouped.set(index, []);
+        grouped.get(index).push(finding);
+      }
+      if (!grouped.size) break;
+      for (const [index, sectionFindings] of grouped) {
         await this.#assertLive(id);
-        const sectionFindings = blocking.filter(row => new RegExp(`section[-:]${index}(?:\\D|$)`, "i").test(row.location ?? ""));
+        const beforeHash = hashObject(sections[index]);
         sections[index] = await this.#repairSection(id, {
           brief,
           research: { sources: research.sources, claims: brief.claims },
@@ -2145,16 +2185,21 @@ export class ContentDirectorService {
           section: outline.sections[index],
           currentSection: sections[index],
           findings: sectionFindings,
+          sectionIndex: index,
           round,
-        }, outline.sections[index], authorizedClaimIds, hashObject(sections[index]));
+        }, outline.sections[index], authorizedClaimIds, beforeHash);
+        if (hashObject(sections[index]) === beforeHash) untouched.push(...sectionFindings);
       }
+      const previousHash = articleHash(article);
       article = buildArticle(sections);
+      if (articleHash(article) === previousHash) break;
       deterministicFindings = deterministicArticleFindings(article, {
         ...brief.targetLength,
         allowedUrls,
         mustKeep: brief.mustKeep,
         mustAvoid: brief.mustAvoid,
       });
+      retainOpenFindings(deterministicFindings, untouched);
       report = await this.#auditArticle(id, {
         phase: "quality.review",
         article,
@@ -2178,6 +2223,11 @@ export class ContentDirectorService {
       mustKeep: brief.mustKeep,
       mustAvoid: brief.mustAvoid,
     });
+    // A final editor can re-evaluate the corrected package. An unresolved blocking finding
+    // on these exact bytes remains open when a scoped edit could not be performed.
+    if (blocking.length && report.contentHash === articleHash(article)) {
+      retainOpenFindings(deterministicFindings, blocking);
+    }
     report = await this.#auditArticle(id, {
       phase: "quality.final",
       article,
@@ -2220,36 +2270,79 @@ export class ContentDirectorService {
   }
 
   async #repairSection(id, input, section, authorizedClaimIds, beforeHash) {
-    const key = `${section.key}:round-${input.round}:${beforeHash}`;
-    const cached = this.#successfulStep(id, "article.repair", key);
+    const { sectionIndex, ...legacyInput } = input;
+    const legacyKey = `${section.key}:round-${input.round}:${beforeHash}`;
+    const key = `${legacyKey}:${hashObject(input.findings)}`;
+    let cached = this.#successfulStep(id, "article.repair", key);
+    if (!cached) {
+      const legacy = this.#successfulStep(id, "article.repair", legacyKey);
+      if (legacy?.inputHash === hashObject(legacyInput) && legacy.output?.beforeHash === beforeHash) cached = legacy;
+    }
     if (cached?.artifact?.name) {
       const markdown = (await this.readArtifact(id, cached.artifact.name)).bytes.toString("utf8").trim();
       const lines = markdown.split("\n");
       const first = lines.shift() ?? "";
       const title = /^##\s+(.+)$/.test(first) ? first.replace(/^##\s+/, "") : section.title;
-      return validateSectionDraft({ title, body: lines.join("\n").trim(), paragraphs: lines.join("\n").trim().split(/\n\s*\n/), claimIds: cached.output?.claimIds ?? [] }, section, authorizedClaimIds);
+      const restored = validateSectionDraft({ title, body: lines.join("\n").trim(), paragraphs: lines.join("\n").trim().split(/\n\s*\n/), claimIds: cached.output?.claimIds ?? [] }, section, authorizedClaimIds);
+      if (hashObject(restored) !== cached.output.afterHash) fail(409, "REPAIR_ARTIFACT_CHANGED", "已修段落与成功回执中的内容摘要不一致。");
+      return restored;
     }
     if (typeof this.model.repairSection !== "function") {
       fail(503, "CONTENT_REPAIR_UNAVAILABLE", "当前模型适配器不支持定点章节修复。");
     }
-    const step = await this.#beginStep(id, "article.repair", key, input);
-    const result = await this.model.repairSection(input);
-    const repaired = validateSectionDraft(result.value, section, authorizedClaimIds);
     const allowedChanges = input.findings.flatMap(finding => finding.allowedChanges ?? []);
-    const allowsWholeSection = allowedChanges.some(value => /^section(?::|-)\d+$/i.test(value) || value === section.key);
+    const allowsWholeSection = allowedChanges.some(value => repairSectionIndex(value, input.outline.sections) === sectionIndex);
+    const limit = input.currentSection.paragraphs.length;
+    let allowedParagraphs = [...new Set(allowedChanges.map(value => /^paragraph[-: ]*(\d+)$/i.exec(value)?.[1])
+      .filter(Boolean).map(Number).filter(n => n >= 1 && n <= limit))];
+    if (!allowsWholeSection && !allowedParagraphs.length) {
+      if (!this.model.planSectionRepair || allowedChanges.length) return input.currentSection;
+      let plan = this.#successfulStep(id, "repair.scope", key);
+      if (!plan) {
+        const request = { sectionKey: section.key, paragraphs: input.currentSection.paragraphs, findings: input.findings };
+        plan = await this.#beginStep(id, "repair.scope", key, request);
+        const response = await this.model.planSectionRepair(request);
+        const paragraphs = response.value?.paragraphs;
+        if (!Array.isArray(paragraphs) || paragraphs.some(n => !Number.isInteger(n) || n < 1 || n > limit)
+            || typeof response.value.reason !== "string" || !response.value.reason.trim()) {
+          fail(502, "REPAIR_SCOPE_INVALID", "独立审核返回的段落范围无效。");
+        }
+        plan = await this.#finishStep(id, plan, { output: { paragraphs: [...new Set(paragraphs)],
+          reason: response.value.reason.slice(0, 1000) }, receipt: response.receipt });
+      }
+      allowedParagraphs = plan.output.paragraphs;
+      if (!allowedParagraphs.length) return input.currentSection;
+    }
+    const request = allowsWholeSection ? input : { ...input, allowedParagraphs };
+    const step = await this.#beginStep(id, "article.repair", key, request);
+    const result = await this.model.repairSection(request);
+    let candidate = result.value;
     if (!allowsWholeSection) {
-      const allowedParagraphs = new Set(allowedChanges
-        .map(value => /paragraph[-: ]*(\d+)/i.exec(value)?.[1])
-        .filter(value => value !== undefined)
-        .map(Number));
-      if (!allowedParagraphs.size) fail(422, "REPAIR_SCOPE_REQUIRED", "finding 没有声明允许修改的段落，停止定点修复。");
+      if (Array.isArray(candidate?.edits)) {
+        const paragraphs = [...input.currentSection.paragraphs];
+        const seen = new Set();
+        for (const edit of candidate.edits) {
+          if (!allowedParagraphs.includes(edit?.paragraph) || seen.has(edit.paragraph) || typeof edit.text !== "string" ||
+              !edit.text.trim() || /\n\s*\n/.test(edit.text.trim())) {
+            fail(422, "REPAIR_SCOPE_VIOLATION", "定点修复必须唯一指向获准修改的原段落。");
+          }
+          seen.add(edit.paragraph);
+          paragraphs[edit.paragraph - 1] = edit.text.trim();
+        }
+        candidate = { title: input.currentSection.title, body: paragraphs.join("\n\n"), paragraphs,
+          claimIds: candidate.claimIds ?? input.currentSection.claimIds };
+      }
+    }
+    const repaired = validateSectionDraft(candidate, section, authorizedClaimIds);
+    if (!allowsWholeSection) {
+      if (repaired.title !== input.currentSection.title) fail(422, "REPAIR_SCOPE_VIOLATION", "定点修复改变了未授权的章节标题。");
       if (repaired.paragraphs.length !== input.currentSection.paragraphs.length) {
         fail(422, "REPAIR_SCOPE_VIOLATION", "定点修复改变了段落数量，超出允许范围。");
       }
       const changed = repaired.paragraphs
         .map((value, index) => value === input.currentSection.paragraphs[index] ? null : index)
         .filter(index => index !== null);
-      if (changed.some(index => !allowedParagraphs.has(index + 1))) {
+      if (changed.some(index => !allowedParagraphs.includes(index + 1))) {
         fail(422, "REPAIR_SCOPE_VIOLATION", "定点修复修改了未授权段落。");
       }
     }
@@ -2668,8 +2761,9 @@ function buildArticleBlocks(sections) {
 }
 
 function deriveTags(brief) {
-  const values = [brief.audience, brief.goal, ...brief.platforms];
-  return [...new Set(values.map(value => String(value ?? "").trim()).filter(Boolean))].slice(0, 12);
+  // Audience and goal are free-form private instructions, not descriptive tags.
+  const values = (brief.claims ?? []).map(claim => claim.type);
+  return [...new Set(values.filter(type => typeof type === "string" && /^[a-z][a-z0-9_-]{0,30}$/u.test(type)))].slice(0, 12);
 }
 
 function videoNextActions(kind) {

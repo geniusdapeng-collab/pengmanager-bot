@@ -359,6 +359,11 @@ export function createNativeBotAdapter({ app, mode = 'real', loadIllustration, a
     }
     await onJob?.(job.id);
     if (job.pauseRequested) return blocked('NATIVE_JOB_PAUSED', { jobId: job.id });
+    // Re-enter only a known pre-publication editorial failure on the same managed job.
+    // Previously successful editorial steps and paid requests are read through their original keys.
+    if (job.managedExecution && job.status === 'failed' && job.error?.code === 'REPAIR_SCOPE_REQUIRED') {
+      job = await director.startJob(job.id, ctx(productionActor, [taskId, job.id, 'resume-scoped-repair'], job));
+    }
     if (['queued', 'needs_resume'].includes(job.status)) {
       try {
         if (director.getStatus().runningJobs >= director.getStatus().maxConcurrentJobs) return wait('CONTENT_JOB_BUSY', { jobId: job.id });

@@ -59,6 +59,7 @@ export const CONTENT_STEP_KINDS = Object.freeze([
   "article.assemble",
   "quality.deterministic",
   "quality.review",
+  "repair.scope",
   "article.repair",
   "quality.final",
   "visual.plan",
@@ -212,10 +213,12 @@ export function deterministicArticleFindings(article, { minCharacters, maxCharac
       findings.push({ severity: "blocker", code: "SECTION_PARAGRAPH_COUNT", dimension: "structure", location: `section:${section.index}`,
         message: `章节「${section.title}」必须至少包含两个实质段落。` });
     }
-    const quantitative = /(?:\d+(?:\.\d+)?%|\d{4}年|\d+(?:\.\d+){1,3}|[$¥€£]\s?\d+|\b\d{2,}\b)/u.test(section.body);
-    if (quantitative && !(article?.sections?.[section.index]?.claimIds?.length)) {
+    const quantitative = /(?:\d+(?:\.\d+)?%|\d{4}年|\d+(?:\.\d+){1,3}|[$¥€£]\s?\d+|\b\d{2,}\b)/u;
+    const numericParagraphs = section.paragraphs.flatMap((line, i) =>
+      quantitative.test(line.replace(INLINE_HTTP_URL, "")) ? [`paragraph:${i + 1}`] : []);
+    if (numericParagraphs.length && !(article?.sections?.[section.index]?.claimIds?.length)) {
       findings.push({ severity: "blocker", code: "UNCITED_QUANTITATIVE_CLAIM", dimension: "facts", location: `section:${section.index}`,
-        message: `章节「${section.title}」出现数字、版本、年份或金额，但没有绑定已批准 Claim 或研究来源。` });
+        message: `章节「${section.title}」出现数字、版本、年份或金额，但没有绑定已批准 Claim 或研究来源。`, allowedChanges: numericParagraphs });
     }
   }
   const headings = sections.map(section => section.title.replace(/\s+/g, "").toLowerCase());
